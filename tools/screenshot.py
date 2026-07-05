@@ -2,7 +2,7 @@
 # load olayında çeker, canlı fetch bekleyen görünümler boş çıkar; bu araç DOM'da
 # seçici belirene kadar bekler).
 # Kullanım: python tools/screenshot.py <url> <çıktı.png> [bekleme-seçicisi] [genişlik] [yükseklik]
-import base64, json, subprocess, sys, time, urllib.request
+import base64, json, os, subprocess, sys, time, urllib.request
 import websocket
 
 url = sys.argv[1]
@@ -14,18 +14,23 @@ height = int(sys.argv[5]) if len(sys.argv) > 5 else 1000
 CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 PORT = 9333
 
+profile = os.path.join(os.environ.get("TEMP", "."), "cdp-shot")
 proc = subprocess.Popen([
     CHROME, "--headless=new", "--disable-gpu", f"--remote-debugging-port={PORT}",
-    f"--window-size={width},{height}", "--user-data-dir=%TEMP%\\cdp-shot", "about:blank",
+    "--remote-allow-origins=*",
+    f"--window-size={width},{height}", f"--user-data-dir={profile}", "about:blank",
 ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 try:
-    for _ in range(50):
+    page = None
+    for _ in range(100):
         try:
             tabs = json.load(urllib.request.urlopen(f"http://127.0.0.1:{PORT}/json"))
             page = next(t for t in tabs if t["type"] == "page")
             break
         except Exception:
-            time.sleep(0.2)
+            time.sleep(0.3)
+    if page is None:
+        raise RuntimeError("Chrome DevTools'a bağlanılamadı (port 9333)")
     ws = websocket.create_connection(page["webSocketDebuggerUrl"], timeout=30)
     mid = [0]
     def cmd(method, **params):
@@ -50,6 +55,6 @@ try:
     shot = cmd("Page.captureScreenshot", format="png")
     with open(out, "wb") as f:
         f.write(base64.b64decode(shot["data"]))
-    print(f"OK → {out}")
+    print(f"OK -> {out}")
 finally:
     proc.kill()
