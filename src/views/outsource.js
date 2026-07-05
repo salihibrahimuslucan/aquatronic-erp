@@ -5,8 +5,8 @@ import { getOutsourceJobs } from '../data/store.js';
 import { esc } from './helpers.js';
 
 export const outsourceView = {
-    title: 'Fason Üretim',
-    subtitle: 'Dış kablolama ve montaj ortaklığındaki (Ömer Kablo) iş emirleri.',
+    title: 'Dış Üretim',
+    subtitle: 'Dış kablolama ve montaj ortaklığındaki (Ömer Kablo) fason iş emirleri.',
 
     async render(pane) {
         const jobs = await getOutsourceJobs();

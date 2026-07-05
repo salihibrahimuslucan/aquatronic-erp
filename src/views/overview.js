@@ -1,16 +1,19 @@
 // Genel Bakış — 4 KPI + kritik stok tablosu (v2 kalıbı; chart YOK, sade).
-import { getKpis, getCriticalItems, getTabs, stockStatus, stockStatusLabel } from '../data/store.js';
+import { getKpis, getCriticalItems, stockStatus, stockStatusLabel } from '../data/store.js';
 import { photoUrl, iconForFamily, statusPillClass, esc } from './helpers.js';
 
 const MAX_CRITICAL_ROWS = 14;
+const FAMILY_LABEL = {
+    finished: 'Bitmiş', lighting: 'Aydınlatma', vario: 'Vario', switch: 'Switch',
+    nozzle: 'Nozul', powerbox: 'PowerBOX', cable: 'Kablo & Soket', pano: 'Pano / PSU', motor: 'Motor',
+};
 
 export const overviewView = {
     title: 'Genel Bakış',
     subtitle: 'Aquatronic üretim, stok ve teklif kontrol arayüzü.',
 
     async render(pane) {
-        const [kpis, critical, tabs] = await Promise.all([getKpis(), getCriticalItems(), getTabs()]);
-        const tabLabel = Object.fromEntries(tabs.map((t) => [t.key, t.label]));
+        const [kpis, critical] = await Promise.all([getKpis(), getCriticalItems()]);
 
         pane.innerHTML = `
             <div class="kpi-grid">
@@ -39,9 +42,9 @@ export const overviewView = {
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
                     </div>
                     <div class="kpi-info">
-                        <h3>Aktif Üretim Emri</h3>
-                        <p class="kpi-value mono">${kpis.openOrderCount}</p>
-                        <span class="kpi-sub">Planlı + üretimde + testte</span>
+                        <h3>Aktif Üretim</h3>
+                        <p class="kpi-value mono">${kpis.activeCount}</p>
+                        <span class="kpi-sub">Şu an üretimdeki iş emirleri</span>
                     </div>
                 </div>
                 <div class="kpi-card bg-glass">
@@ -62,7 +65,7 @@ export const overviewView = {
                         <h2>⚠️ Kritik Stok Alarmı Veren Ürünler</h2>
                         <p class="card-subtitle">Mevcut miktarı kritik asgari seviyenin altına düşen kalemler (en kötüden başlayarak ilk ${MAX_CRITICAL_ROWS}).</p>
                     </div>
-                    <button class="btn btn-outline" data-goto="stok">Tüm Envanteri Gör</button>
+                    <button class="btn btn-outline" data-goto="g/finished">Tüm Envanteri Gör</button>
                 </div>
                 <div class="table-container">
                     <table>
@@ -91,7 +94,7 @@ export const overviewView = {
                                                 : `<span class="table-placeholder-ico">${iconForFamily(p.family)}</span>`}
                                         </td>
                                         <td style="font-weight:600;color:#fff">${esc(p.name)}</td>
-                                        <td class="mono" style="font-size:0.75rem">${esc(tabLabel[p.family] ?? p.family)}</td>
+                                        <td class="mono" style="font-size:0.75rem">${esc(FAMILY_LABEL[p.family] ?? p.family)}</td>
                                         <td class="table-qty-val text-pink">${p.qty}</td>
                                         <td class="table-qty-val" style="color:var(--text-secondary)">${p.critical}</td>
                                         <td><span class="card-stock-status-pill ${statusPillClass(st)}" style="position:static">${stockStatusLabel(st)}</span></td>

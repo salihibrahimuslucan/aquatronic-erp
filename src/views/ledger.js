@@ -8,8 +8,11 @@ import { esc, fmtWhen } from './helpers.js';
 const ACTION_LABELS = {
     'stock-in': { label: 'Stok Girişi', dir: 'in' },
     'stock-out': { label: 'Stok Çıkışı', dir: 'out' },
+    'product-edit': { label: 'Ürün Düzenlendi', dir: null },
     'product-add': { label: 'Ürün Eklendi', dir: 'in' },
     'product-delete': { label: 'Ürün Silindi', dir: 'out' },
+    'production-start': { label: 'Üretim Başladı', dir: 'in' },
+    'production-done': { label: 'Üretim Tamamlandı', dir: 'in' },
     'plan-add': { label: 'Plan Eklendi', dir: 'in' },
     'plan-delete': { label: 'Plan Silindi', dir: 'out' },
     'tab-add': { label: 'Sekme Eklendi', dir: 'in' },
@@ -54,7 +57,7 @@ export const ledgerView = {
                     </table>
                 </div>
                 <p class="card-subtitle" style="margin-top:14px">
-                    Bu defter Faz 0 veri güncellemesiyle dolacak — kalıcı ledger yazımı Faz 1'de (Supabase) devreye girecek.
+                    Stok giriş/çıkış ve üretim hareketleri buraya canlı yazılır (tarayıcıda kalıcı) — Faz 1'de Supabase'e taşınacak.
                 </p>
             </div>`;
     },

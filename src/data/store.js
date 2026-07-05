@@ -1,336 +1,302 @@
-// Veri erişim katmanı — TEK giriş noktası.
-// Faz 1'de bu modülün içi Supabase istemcisiyle değişecek; görünümler
-// yalnızca buradaki async API'yi kullanır, veri kaynağını bilmez.
+// Veri erişim + iş mantığı katmanı — TEK giriş noktası.
+// Faz 1'de bu modülün İÇİ Supabase istemcisine döner; görünümler yalnızca
+// buradaki async API'yi kullanır, kaynağı bilmez.
 //
-// Gerçek veri sözleşmesi (başka bir agent üretiyor):
-//   src/data/items.json      -> [{id,name,family,cat,qty,critical,note,photo,boxQty,weight,tr,history,components}]
-//   src/data/tabs.json       -> [{key,label,hidden,count}]
-//   src/data/outsource.json  -> Ömer Kablo fason kayıtları (esnek alan adları)
-//   src/data/ops.json        -> {pool, activityLog, productionArchive}
+// KALICILIK (bu faz): tarayıcı localStorage. İlk yüklemede JSON tohumları
+// (items/ops/outsource/crm-snapshot) okunur; her mutasyon localStorage'a yazılır.
+// Netlify uygulamasının npoint+localStorage modelinin yerel eşdeğeri.
 //
-// Bu dosyalar henüz yoksa/eksikse sample-data.js üzerinden çalışmaya devam eder
-// (geliştirme kesintisiz sürsün diye) — dosyalar gelince otomatik gerçek veriye geçilir.
+// Menü yapısı = netlify BASE_NAV_GROUPS (aquatronic-v7.html) — Salih onaylı:
+//   active · planned · finished · production(alt) · cable&socket(alt) · pano/psu · motor · dış · pool
 
-import {
-    items as sampleItems,
-    moves as sampleMoves,
-    productionOrders as sampleOrders,
-    externalProduction as sampleExternal,
-    crmDeals as sampleCrmDeals,
-} from './sample-data.js';
+import { crmDeals as sampleCrmDeals } from './sample-data.js';
 
-// import.meta.glob: dosya yoksa derleme zamanında HATA vermez (Rollup sabit
-// import path'lerini modül grafiğine zorunlu ekler, glob ise diskte ne varsa
-// onu eşler) — bu yüzden veri dosyaları henüz üretilmemişken de build/dev
-// kırılmaz, dosyalar gelince otomatik devreye girer.
-const dataModules = import.meta.glob('./{items,tabs,outsource,ops,crm-snapshot}.json', { eager: true });
-
+const dataModules = import.meta.glob('./{items,outsource,ops,crm-snapshot}.json', { eager: true });
 function loadJson(name) {
     const mod = dataModules[`./${name}.json`];
     return mod ? (mod.default ?? mod) : null;
 }
-
 const itemsJson = loadJson('items');
-const tabsJson = loadJson('tabs');
-const outsourceJson = loadJson('outsource');
-const opsJson = loadJson('ops');
+const outsourceJson = loadJson('outsource') ?? [];
+const opsJson = loadJson('ops') ?? {};
+const crmJson = loadJson('crm-snapshot');
 
-const STAGE_LABELS = {
-    planli: 'Planlı',
-    uretimde: 'Üretimde',
-    havuz_testi: 'Havuz Testi',
-    bitmis: 'Bitmiş',
-};
+// ─── Menü grupları (operasyon tarafı) ────────────────────────────────────
+// type: stock = ürün kartı grid'i (subs ile) · active/planned/outsource/pool = özel görünüm
+export const OP_GROUPS = [
+    { id: 'active',   label: 'Aktif Üretim',   icon: 'active',   type: 'active' },
+    { id: 'planned',  label: 'Planlı Üretim',  icon: 'planned',  type: 'planned' },
+    { id: 'finished', label: 'Bitmiş Ürünler', icon: 'finished', type: 'stock',
+        subs: [{ key: 'finished', label: 'Bitmiş', match: { family: 'finished' } }] },
+    { id: 'production', label: 'Üretim', icon: 'production', type: 'stock',
+        subs: [
+            { key: 'lighting', label: 'Aydınlatma', match: { family: 'lighting' } },
+            { key: 'vario',    label: 'Vario',      match: { family: 'vario' } },
+            { key: 'switch',   label: 'Switch',     match: { family: 'switch' } },
+            { key: 'nozzle',   label: 'Nozul',      match: { family: 'nozzle' } },
+            { key: 'powerbox', label: 'PowerBOX',   match: { family: 'powerbox' } },
+        ] },
+    { id: 'cable', label: 'Kablo & Soket', icon: 'cable', type: 'stock',
+        subs: [
+            { key: 'cable-spool', label: 'Makara Kablo', match: { family: 'cable', cats: ['Cable', 'Device Cable'] } },
+            { key: 'combocable',  label: 'Combo Kablo',  match: { family: 'cable', cats: ['Combo Cable'] } },
+            { key: 'socket',      label: 'Soket',        match: { family: 'cable', cats: ['Socket'] } },
+        ] },
+    { id: 'pano',  label: 'Pano / PSU', icon: 'pano', type: 'stock',
+        subs: [{ key: 'pano', label: 'Pano / PSU', match: { family: 'pano' } }] },
+    { id: 'motor', label: 'Motor', icon: 'motor', type: 'stock',
+        subs: [{ key: 'motor', label: 'Motor', match: { family: 'motor' } }] },
+    { id: 'dis',   label: 'Dış Üretim',  icon: 'dis',  type: 'outsource' },
+    { id: 'pool',  label: 'Havuz Testi', icon: 'pool', type: 'pool' },
+];
 
-export function stageLabel(stage) {
-    return STAGE_LABELS[stage] ?? stage;
+export function getOpGroups() { return OP_GROUPS; }
+export function getGroup(id) { return OP_GROUPS.find((g) => g.id === id) ?? null; }
+
+// ─── Normalleştirme ───────────────────────────────────────────────────────
+// familyOrig ?? family: kürasyon-öncesi orijinal npoint sekmesini geri verir
+// (uydurma "enclosure/box-split" kaldırıldı — netlify grupları esas).
+function effectiveFamily(raw) {
+    return raw.familyOrig ?? raw.family ?? raw.cat ?? 'diger';
 }
-
-// --- Ürünler (items.json ↔ sample-data normalize) -------------------------
-
 function normalizeItem(raw, idx) {
-    // items.json şeması zaten bu alanlarla geliyorsa direkt kullan.
-    if (itemsJson) {
-        return {
-            id: raw.id ?? idx,
-            name: raw.name ?? '(isimsiz)',
-            family: raw.family ?? raw.cat ?? 'Diğer',
-            cat: raw.cat ?? raw.family ?? 'Diğer',
-            qty: Number(raw.qty) || 0,
-            critical: Number(raw.critical) || 0,
-            note: raw.note ?? '',
-            photo: raw.photo || null,
-            boxQty: raw.boxQty ?? null,
-            weight: raw.weight ?? null,
-            tr: raw.tr ?? raw.name ?? '',
-            history: Array.isArray(raw.history) ? raw.history : [],
-            components: raw.components ?? null,
-        };
-    }
-    // sample-data.js eski şeması (code/category/unit/updated) -> ortak şemaya çevir.
     return {
-        id: idx,
-        name: raw.name,
-        family: raw.category,
-        cat: raw.category,
+        id: raw.id ?? idx,
+        name: raw.name ?? '(isimsiz)',
+        family: effectiveFamily(raw),
+        cat: raw.cat ?? '',
         qty: Number(raw.qty) || 0,
-        critical: Number(raw.critical) || 0,
-        note: `Kod: ${raw.code} · Birim: ${raw.unit} · Son güncelleme: ${raw.updated}`,
-        photo: null,
-        boxQty: null,
-        weight: null,
-        tr: raw.name,
-        history: sampleMoves
-            .filter((m) => m.code === raw.code)
-            .map((m) => ({
-                date: m.date,
-                type: m.type === 'giris' ? 'in' : 'out',
-                qty: m.qty,
-                user: 'Sistem',
-                note: m.note,
-            })),
-        components: null,
+        critical: Number(raw.critical ?? raw.crt) || 0,
+        note: raw.note ?? '',
+        photo: raw.photo || null,
+        boxQty: raw.boxQty ?? null,
+        weight: raw.weight ?? null,
+        tr: raw.tr ?? raw.name ?? '',
+        history: Array.isArray(raw.history) ? raw.history.slice() : [],
+        components: raw.components ?? null,
     };
 }
 
-// Gizli sekmelerin kalemleri katalogda GÖRÜNMEZ (grid/arama/KPI dışı)
-// ama veri durur — ID ile detayına ulaşılabilir (rawItems).
-const _hiddenFamilies = new Set((tabsJson ?? []).filter((t) => t.hidden).map((t) => t.key));
+// ─── Durum (localStorage kalıcılık) ────────────────────────────────────────
+const LS_KEY = 'aq_erp_state_v1';
+let state = null;
 
-let _rawCache = null;
-function rawItems() {
-    if (_rawCache) return _rawCache;
-    const source = itemsJson ?? sampleItems;
-    _rawCache = source.map((raw, idx) => normalizeItem(raw, idx));
-    return _rawCache;
+function seed() {
+    return {
+        items: (itemsJson ?? []).map((r, i) => normalizeItem(r, i)),
+        pool: Array.isArray(opsJson.pool) ? opsJson.pool.map((p) => ({ ...p })) : [],
+        dis: outsourceJson.map((d) => ({ ...d })),
+        activeRuns: [],                 // {id, name, qty, note, startedAt, user}
+        plans: [],                      // {id, name, cat, note, createdAt, user}
+        productionArchive: Array.isArray(opsJson.productionArchive) ? opsJson.productionArchive.slice() : [],
+        activityLog: Array.isArray(opsJson.activityLog) ? opsJson.activityLog.slice() : [],
+    };
 }
 
-function allItems() {
-    return rawItems().filter((i) => !_hiddenFamilies.has(i.family));
+function ensureState() {
+    if (state) return state;
+    try {
+        const raw = localStorage.getItem(LS_KEY);
+        state = raw ? JSON.parse(raw) : seed();
+    } catch {
+        state = seed();
+    }
+    return state;
 }
 
+function persist() {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch { /* kota dolabilir; sessiz geç */ }
+}
+
+export function resetToSeed() {
+    state = seed();
+    persist();
+}
+
+let _currentUser = 'Salih';
+export function setCurrentUser(u) { _currentUser = u || 'Salih'; }
+export function getCurrentUser() { return _currentUser; }
+
+function nowTs() { return Date.now(); }
+function trDate() { return new Date().toLocaleDateString('tr-TR'); }
+
+// Global aktivite günlüğü (netlify logActivity karşılığı)
+export function logActivity(action, target, details) {
+    ensureState();
+    state.activityLog.unshift({ ts: nowTs(), user: _currentUser, action, target, details: details ?? '' });
+    if (state.activityLog.length > 2000) state.activityLog.length = 2000;
+}
+
+// ─── Ürünler ───────────────────────────────────────────────────────────────
 export function stockStatus(item) {
     if (item.qty <= item.critical) return 'critical';
     if (item.qty <= item.critical * 1.2) return 'low';
     return 'ok';
 }
-
 export function stockStatusLabel(status) {
-    if (status === 'critical') return 'Kritik';
-    if (status === 'low') return 'Azalıyor';
-    return 'Yeterli';
+    return status === 'critical' ? 'Kritik' : status === 'low' ? 'Azalıyor' : 'Yeterli';
 }
 
-export async function getItems() {
-    return allItems();
-}
+export async function getItems() { return ensureState().items; }
 
 export async function getItemById(id) {
-    const numId = Number(id);
-    return rawItems().find((i) => i.id === numId || String(i.id) === String(id)) ?? null;
+    ensureState();
+    return state.items.find((i) => i.id === Number(id) || String(i.id) === String(id)) ?? null;
 }
 
-// Bellek-içi stok güncelleme (Faz 1'de Supabase'e bağlanacak; kalıcılık YOK).
-export async function adjustItemStock(id, delta, meta = {}) {
-    const item = await getItemById(id);
-    if (!item) return null;
-    const before = item.qty;
-    item.qty = Math.max(0, item.qty + delta);
-    const diff = item.qty - before;
-    if (diff !== 0) {
-        const now = new Date();
-        const dateStr = now.toLocaleDateString('tr-TR') + ' ' + now.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
-        item.history.unshift({
-            date: dateStr,
-            type: diff > 0 ? 'in' : 'out',
-            qty: Math.abs(diff),
-            user: meta.user ?? 'Salih',
-            note: meta.note ?? 'Manuel stok güncelleme',
-        });
+// Bir alt-sekme match'ine göre ürünleri süz
+function matchItems(match) {
+    ensureState();
+    if (!match) return [];
+    return state.items.filter((i) => {
+        if (match.family && i.family !== match.family) return false;
+        if (match.cats && !match.cats.includes(i.cat)) return false;
+        return true;
+    });
+}
+
+// Bir stok-grubunun (finished/production/cable/pano/motor) tüm alt-sekmeleri + sayıları
+export async function getStockGroup(groupId) {
+    const g = getGroup(groupId);
+    if (!g || g.type !== 'stock') return { group: g, subs: [] };
+    const subs = g.subs.map((s) => ({ ...s, items: matchItems(s.match) }));
+    return { group: g, subs };
+}
+
+// Stok in/out — ürün history + global log (netlify doStockIn/doStockOut birebir)
+export async function stockIn(id, amount, note = '') {
+    const p = await getItemById(id);
+    const amt = parseInt(amount, 10) || 0;
+    if (!p || amt <= 0) return p;
+    p.qty += amt;
+    p.history.unshift({ type: 'in', qty: amt, date: trDate(), note, ts: nowTs(), user: _currentUser });
+    logActivity('stock-in', p.name, `+${amt} (yeni stok: ${p.qty})`);
+    persist();
+    return p;
+}
+export async function stockOut(id, amount, note = '') {
+    const p = await getItemById(id);
+    const amt = parseInt(amount, 10) || 0;
+    if (!p || amt <= 0) return p;
+    p.qty = Math.max(0, p.qty - amt);
+    p.history.unshift({ type: 'out', qty: amt, date: trDate(), note, ts: nowTs(), user: _currentUser });
+    logActivity('stock-out', p.name, `−${amt} (kalan: ${p.qty})`);
+    persist();
+    return p;
+}
+
+// Ürün bilgisi düzenleme (netlify saveProduct)
+export async function saveProduct(id, patch) {
+    const p = await getItemById(id);
+    if (!p) return null;
+    const oldQty = p.qty;
+    if (patch.qty !== undefined) p.qty = parseInt(patch.qty, 10) || 0;
+    if (patch.critical !== undefined) p.critical = parseInt(patch.critical, 10) || 0;
+    if (patch.note !== undefined) p.note = patch.note;
+    if (patch.weight !== undefined) p.weight = patch.weight === '' ? null : parseFloat(patch.weight);
+    if (patch.boxQty !== undefined) p.boxQty = patch.boxQty === '' ? null : parseInt(patch.boxQty, 10);
+    logActivity('product-edit', p.name, oldQty !== p.qty ? `stok ${oldQty} → ${p.qty}` : 'bilgi güncellendi');
+    persist();
+    return p;
+}
+
+// ─── Aktif üretim + arşiv ──────────────────────────────────────────────────
+export async function getActiveRuns() { return ensureState().activeRuns; }
+export async function getProductionArchive() { return ensureState().productionArchive; }
+
+export async function startProduction(productName, qty, note = '') {
+    ensureState();
+    const run = { id: nowTs(), name: productName, qty: parseInt(qty, 10) || 0, note, startedAt: nowTs(), user: _currentUser };
+    state.activeRuns.unshift(run);
+    logActivity('production-start', productName, `${run.qty} adet üretime alındı`);
+    persist();
+    return run;
+}
+export async function completeRun(runId) {
+    ensureState();
+    const idx = state.activeRuns.findIndex((r) => r.id === runId);
+    if (idx < 0) return null;
+    const run = state.activeRuns.splice(idx, 1)[0];
+    run.completedAt = nowTs();
+    state.productionArchive.unshift(run);
+    // Bitmiş ürün stoğuna ekle (varsa)
+    const p = state.items.find((i) => i.name === run.name);
+    if (p) {
+        p.qty += run.qty;
+        p.history.unshift({ type: 'in', qty: run.qty, date: trDate(), note: 'Üretim tamamlandı', ts: nowTs(), user: 'Üretim' });
     }
-    return item;
+    logActivity('production-done', run.name, `${run.qty} adet tamamlandı → stok`);
+    persist();
+    return run;
 }
 
-// --- Sekmeler (tabs.json) --------------------------------------------------
-
-let _tabsCache = null;
-export async function getTabs() {
-    if (_tabsCache) return _tabsCache;
-    if (tabsJson) {
-        _tabsCache = tabsJson.filter((t) => !t.hidden);
-        return _tabsCache;
-    }
-    // Fallback: item ailelerinden türet.
-    const families = [...new Set(allItems().map((i) => i.family))].sort();
-    _tabsCache = families.map((f) => ({
-        key: f,
-        label: f,
-        hidden: false,
-        count: allItems().filter((i) => i.family === f).length,
-    }));
-    return _tabsCache;
+// ─── Planlı üretim (PDF/not kartları) ──────────────────────────────────────
+export async function getPlans() { return ensureState().plans; }
+export async function addPlan(name, cat, note) {
+    ensureState();
+    const plan = { id: nowTs(), name, cat: cat ?? '', note: note ?? '', createdAt: nowTs(), user: _currentUser };
+    state.plans.unshift(plan);
+    logActivity('plan-add', name, 'yeni üretim planı');
+    persist();
+    return plan;
+}
+export async function deletePlan(id) {
+    ensureState();
+    state.plans = state.plans.filter((p) => p.id !== id);
+    persist();
 }
 
-// --- Hareket defteri (ops.json activityLog ↔ sample moves) ----------------
-
-function normalizeLogEntry(raw, idx) {
-    if (opsJson?.activityLog) {
-        return {
-            id: raw.id ?? idx,
-            date: raw.date ?? raw.time ?? raw.timestamp ?? '',
-            product: raw.product ?? raw.item ?? raw.name ?? '—',
-            action: raw.action ?? raw.type ?? raw.op ?? '—',
-            qty: raw.qty ?? raw.amount ?? null,
-            user: raw.user ?? raw.by ?? raw.responsible ?? 'Sistem',
-            note: raw.note ?? raw.detail ?? '',
-        };
-    }
-    return {
-        id: raw.id ?? idx,
-        date: raw.date,
-        product: raw.name,
-        action: raw.type === 'giris' ? 'Giriş' : 'Çıkış',
-        qty: raw.qty,
-        user: 'Sistem',
-        note: raw.note ?? `Ref: ${raw.ref ?? ''}`,
-    };
+// ─── Havuz testi (ops.pool) ────────────────────────────────────────────────
+export async function getPoolItems() { return ensureState().pool; }
+export async function getPoolItemById(id) {
+    ensureState();
+    return state.pool.find((p) => String(p.id) === String(id)) ?? null;
 }
 
+// ─── Dış üretim (fason — Ömer Kablo) ───────────────────────────────────────
+export async function getOutsourceJobs() { return ensureState().dis; }
+
+// ─── Hareket defteri (global activityLog) ──────────────────────────────────
 export async function getActivityLog() {
-    const source = opsJson?.activityLog ?? sampleMoves;
-    return source
-        .map((raw, idx) => normalizeLogEntry(raw, idx))
-        .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    ensureState();
+    return state.activityLog.slice().sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0));
 }
 
-// --- Üretim emirleri (ops.json productionArchive ↔ sample) ----------------
-
-const REAL_PROJECTS = [];
-
-let _ordersCache = null;
-function seedOrdersFromSample() {
-    return sampleOrders.map((o) => ({ ...o, pool: null, outsource: null }));
-}
-
-export async function getProductionOrders() {
-    if (_ordersCache) return _ordersCache;
-    if (opsJson?.productionArchive && opsJson.productionArchive.length > 0) {
-        _ordersCache = opsJson.productionArchive.map((raw, idx) => ({
-            id: raw.id ?? `ORD-${1000 + idx}`,
-            product: raw.product ?? raw.item ?? '—',
-            qty: Number(raw.qty) || 0,
-            stage: raw.stage ?? 'planli',
-            project: raw.project ?? REAL_PROJECTS[idx % REAL_PROJECTS.length],
-            due: raw.due ?? raw.dueDate ?? '',
-            note: raw.note ?? '',
-            pool: raw.pool ?? null,
-            outsource: raw.outsource ?? null,
-        }));
-    } else {
-        _ordersCache = seedOrdersFromSample();
-    }
-    return _ordersCache;
-}
-
-export async function getProductionOrderById(id) {
-    const orders = await getProductionOrders();
-    return orders.find((o) => o.id === id) ?? null;
-}
-
-export async function setOrderStage(id, newStage) {
-    const order = await getProductionOrderById(id);
-    if (!order) return null;
-    const oldStage = order.stage;
-    order.stage = newStage;
-    if (newStage === 'bitmis' && oldStage !== 'bitmis') {
-        const item = allItems().find((i) => i.name === order.product);
-        if (item) {
-            item.qty += order.qty;
-            const now = new Date();
-            const dateStr = now.toLocaleDateString('tr-TR') + ' ' + now.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
-            item.history.unshift({
-                date: dateStr,
-                type: 'in',
-                qty: order.qty,
-                user: 'Üretim Sistemi',
-                note: `Tamamlanan iş emri: ${order.id}`,
-            });
-        }
-    }
-    return order;
-}
-
-export async function savePoolMetrics(id, metrics) {
-    const order = await getProductionOrderById(id);
-    if (!order) return null;
-    order.pool = { ...metrics };
-    return order;
-}
-
-export async function saveOutsourceMetrics(id, details) {
-    const order = await getProductionOrderById(id);
-    if (!order) return null;
-    order.outsource = { ...details };
-    return order;
-}
-
-// Havuz testi örnek kalibrasyon verisi (ops.json pool varsa oradan, yoksa demo).
-export async function getPoolSampleMetrics() {
-    if (opsJson?.pool) {
-        const p = Array.isArray(opsJson.pool) ? opsJson.pool[0] : opsJson.pool;
-        if (p) return p;
-    }
+// ─── KPI'lar + genel bakış ─────────────────────────────────────────────────
+export async function getKpis() {
+    ensureState();
+    const critical = state.items.filter((i) => stockStatus(i) === 'critical');
     return {
-        pressure: '3.2 Bar',
-        duration: '45 dk',
-        current: '210mA / 840mA',
-        height: '6.5m',
-        notes: 'IP68 contası sıkıldı. Pompa mil balans testi başarılı.',
+        totalItems: state.items.length,
+        criticalCount: critical.length,
+        activeCount: state.activeRuns.length,
+        openOpportunityCount: crmJson ? crmJson.pipeline.length : 0,
     };
 }
-
-// --- Fason (outsource.json ↔ sample externalProduction) -------------------
-
-export async function getOutsourceJobs() {
-    if (outsourceJson) return outsourceJson;
-    return sampleExternal;
+export async function getCriticalItems() {
+    ensureState();
+    return state.items
+        .filter((i) => stockStatus(i) !== 'ok')
+        .sort((a, b) => (a.qty - a.critical) - (b.qty - b.critical));
 }
 
-// --- CRM (Google Sheets CRM v4'ün birebir aynası; kaynak: crm-snapshot.json) --
-// Sekmeler: Pipeline / Completed / Lost - Rejected. 16 kolon (A..P) + Activity Log (8 kolon) + Lists sözlükleri.
-
-const crmJson = loadJson('crm-snapshot');
-
-// Sheet'te "New/Inquiry" ve "New / Inquiry" karışık — kanonik forma indirger.
-export function normalizeStage(stage) {
-    return (stage ?? '').replace(/\s*\/\s*/g, ' / ').trim();
-}
-
-// "30.06.2026" (DD.MM.YYYY) -> Date | null
+// ─── CRM (Google Sheets v4 aynası; yazma Faz-CRM'de eklenecek) ──────────────
+export function normalizeStage(stage) { return (stage ?? '').replace(/\s*\/\s*/g, ' / ').trim(); }
 export function parseCrmDate(str) {
     const m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec((str ?? '').trim());
-    if (!m) return null;
-    return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+    return m ? new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1])) : null;
 }
-
-// Sheet tr-locale para stringi ("118.000") -> sayı | null
 export function parseCrmMoney(str) {
     const clean = (str ?? '').replace(/[^\d,.]/g, '').replace(/\./g, '').replace(',', '.');
-    if (!clean) return null;
     const n = Number(clean);
-    return Number.isFinite(n) ? n : null;
+    return clean && Number.isFinite(n) ? n : null;
 }
-
-function normalizeDeal(raw, source) {
-    return { ...raw, stage: normalizeStage(raw.stage), source };
-}
+function normalizeDeal(raw, source) { return { ...raw, stage: normalizeStage(raw.stage), source }; }
 
 export async function getCrm() {
     if (!crmJson) {
-        return {
-            pipeline: sampleCrmDeals, completed: [], lost: [], activityLog: [],
-            lists: { Stage: [], 'Next Action': [], Owner: [], Channel: [], Direction: [] },
-        };
+        return { pipeline: sampleCrmDeals, completed: [], lost: [], activityLog: [],
+            lists: { Stage: [], 'Next Action': [], Owner: [], Channel: [], Direction: [] } };
     }
     return {
         pipeline: crmJson.pipeline.map((d) => normalizeDeal(d, 'pipeline')),
@@ -341,72 +307,32 @@ export async function getCrm() {
         fetchedAt: crmJson.fetchedAt ?? null,
     };
 }
-
 export async function getDealById(id) {
     const crm = await getCrm();
-    return [...crm.pipeline, ...crm.completed, ...crm.lost]
-        .find((d) => d.id === id) ?? null;
+    return [...crm.pipeline, ...crm.completed, ...crm.lost].find((d) => d.id === id) ?? null;
 }
-
 export async function getDealActivities(dealId) {
     const crm = await getCrm();
     return crm.activityLog
         .filter((a) => a.dealId === dealId)
         .sort((a, b) => (parseCrmDate(b.date)?.getTime() ?? 0) - (parseCrmDate(a.date)?.getTime() ?? 0));
 }
-
 export function isOverdue(dateStr) {
     const d = parseCrmDate(dateStr);
     if (!d) return false;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = new Date(); today.setHours(0, 0, 0, 0);
     return d < today;
 }
 
-// --- KPI'lar ----------------------------------------------------------------
-
-export async function getKpis() {
-    const items = allItems();
-    const orders = await getProductionOrders();
-    const crm = await getCrm();
-    const critical = items.filter((i) => stockStatus(i) === 'critical');
-    const openOrders = orders.filter((o) => o.stage !== 'bitmis');
-    return {
-        totalItems: items.length,
-        criticalCount: critical.length,
-        openOrderCount: openOrders.length,
-        openOpportunityCount: crm.pipeline.length,
-    };
-}
-
-export async function getCriticalItems() {
-    return allItems()
-        .filter((i) => stockStatus(i) !== 'ok')
-        .sort((a, b) => (a.qty - a.critical) - (b.qty - b.critical));
-}
-
+// ─── Ortak yardımcılar ─────────────────────────────────────────────────────
 export function formatMoney(value, currency = 'EUR') {
     if (!value) return '—';
-    return new Intl.NumberFormat('tr-TR', {
-        style: 'currency',
-        currency,
-        maximumFractionDigits: 0,
-    }).format(value);
+    return new Intl.NumberFormat('tr-TR', { style: 'currency', currency, maximumFractionDigits: 0 }).format(value);
 }
-
 export function familyIcon(family) {
     const icons = {
-        AquaLIGHT: '💡',
-        AquaVARIO: '💧',
-        AquaSWITCH: '⚙️',
-        PowerBOX: '🔌',
-        BlackBOX: '📦',
-        Nozullar: '🌀',
-        Nozzle: '🌀',
-        Kablolar: '🔌',
-        Cable: '🔌',
-        PCB: '⚡',
-        Sarf: '🛠️',
+        finished: '🎛️', lighting: '💡', vario: '💧', switch: '⚙️', nozzle: '💦',
+        powerbox: '⚡', cable: '🔌', pano: '🗄️', motor: '🔩',
     };
     return icons[family] || '📦';
 }

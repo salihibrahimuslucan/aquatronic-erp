@@ -1,23 +1,17 @@
 // Görünümlerin ortak küçük yardımcıları (veri erişimi DEĞİL — o store.js'te).
 import { familyIcon } from '../data/store.js';
 
-// tabs.json key'lerine göre ikon; eşleşmezse store'daki eski haritaya düş.
+// Ürün ailesine göre placeholder ikonu (netlify grup ailelerine göre).
 const FAMILY_ICONS = {
-    pcbcomp: '⚡',
-    vario: '💧',
-    powerbox: '🔌',
-    lighting: '💡',
-    pcbcard: '📟',
-    xhsocket: '🔗',
-    box: '📦',
     finished: '🎛️',
-    cable: '〰️',
-    pano: '🗄️',
-    nozzle: '🌀',
-    chemical: '🧪',
+    lighting: '💡',
+    vario: '💧',
     switch: '⚙️',
+    nozzle: '💦',
+    powerbox: '⚡',
+    cable: '🔌',
+    pano: '🗄️',
     motor: '🔩',
-    enclosure: '🛡️',
 };
 
 export function iconForFamily(key) {

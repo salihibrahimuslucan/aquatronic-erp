@@ -1,112 +1,86 @@
-// Stok Kartları — v2 foto-öncelikli grid + family sekmeleri + arama.
-// 542 ürün: DOM'a yalnız seçili sekmenin (veya arama sonucunun) kartları basılır.
+// Stok grubu görünümü (finished/production/cable/pano/motor) + ürün detayı.
+// Grup alt-sekmelerle gelir; kart foto-öncelikli; +/- kalıcı stok hareketi yazar.
 import {
-    getItems, getItemById, getTabs, adjustItemStock,
-    stockStatus, stockStatusLabel,
+    getGroup, getStockGroup, getItemById,
+    stockIn, stockOut, saveProduct, stockStatus, stockStatusLabel,
 } from '../data/store.js';
-import { photoUrl, placeholderHtml, iconForFamily, statusPillClass, esc, fmtWhen } from './helpers.js';
+import { photoUrl, placeholderHtml, statusPillClass, esc, fmtWhen, iconForFamily } from './helpers.js';
 import { showToast } from '../main.js';
 
-const MAX_SEARCH_RESULTS = 120;
+const MAX_RENDER = 200;          // grid'e tek seferde en çok kart
+const activeSub = {};            // groupId -> seçili alt-sekme (oturumda hatırla)
 
-// Oturum içinde sekme seçimi hatırlansın (görünüme geri dönünce aynı sekme).
-let activeTabKey = null;
+function setHeader(title, subtitle) {
+    document.getElementById('page-title-text').textContent = title;
+    document.getElementById('page-subtitle-text').textContent = subtitle;
+}
 
-// Kart etiketinde ham key yerine sekme etiketi (render'da doldurulur).
-let familyLabels = {};
+export const stockGroupView = {
+    title: '', subtitle: '',
+    async render(pane, { groupId }) {
+        const { group, subs } = await getStockGroup(groupId);
+        if (!group) { pane.innerHTML = '<p class="empty-row">Grup bulunamadı.</p>'; return; }
+        setHeader(group.label, 'Foto-öncelikli ürün kataloğu ve anlık stok hareketleri.');
 
-// ---------------------------------------------------------------------------
-// LİSTE GÖRÜNÜMÜ  (#/stok)
-// ---------------------------------------------------------------------------
-export const stockListView = {
-    title: 'Stok Kartları',
-    subtitle: 'Foto-öncelikli ürün kataloğu ve anlık miktar kontrolleri.',
-
-    async render(pane) {
-        const [items, tabs] = await Promise.all([getItems(), getTabs()]);
-        familyLabels = Object.fromEntries(tabs.map((t) => [t.key, t.label]));
-        if (!activeTabKey || !tabs.some((t) => t.key === activeTabKey)) {
-            // Foto-öncelikli vitrin: ilk açılış Bitmiş Ürünler sekmesi
-            activeTabKey = tabs.some((t) => t.key === 'finished') ? 'finished' : (tabs[0]?.key ?? null);
+        if (!activeSub[groupId] || !subs.some((s) => s.key === activeSub[groupId])) {
+            activeSub[groupId] = subs[0]?.key ?? null;
         }
+        const multi = subs.length > 1;
 
         pane.innerHTML = `
             <div class="control-row">
-                <div class="family-tabs" id="family-tabs-bar"></div>
+                <div class="family-tabs" id="sub-tabs">
+                    ${multi ? subs.map((s) => `
+                        <button class="family-tab ${s.key === activeSub[groupId] ? 'active' : ''}" data-sub="${esc(s.key)}">
+                            ${esc(s.label)} <span class="tab-count">${s.items.length}</span>
+                        </button>`).join('') : ''}
+                </div>
                 <div class="search-box-wrap">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="search-icon"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                    <input type="text" id="input-stock-search" placeholder="Ürün adı veya Türkçe etiket ara...">
+                    <input type="text" id="stock-search" placeholder="Ürün adı veya Türkçe etiket ara...">
                 </div>
             </div>
-            <div class="product-grid" id="product-cards-grid"></div>`;
+            <div class="product-grid" id="grid"></div>`;
 
-        const tabsBar = pane.querySelector('#family-tabs-bar');
-        const grid = pane.querySelector('#product-cards-grid');
-        const searchInput = pane.querySelector('#input-stock-search');
+        const grid = pane.querySelector('#grid');
+        const searchInput = pane.querySelector('#stock-search');
 
-        const renderTabs = () => {
-            tabsBar.innerHTML = tabs.map((t) => `
-                <button class="family-tab ${t.key === activeTabKey ? 'active' : ''}" data-tab="${esc(t.key)}">
-                    ${esc(t.label)}<span class="tab-count">${t.count ?? ''}</span>
-                </button>`).join('');
-        };
-
-        const visibleItems = () => {
+        const draw = () => {
             const q = searchInput.value.trim().toLowerCase();
+            let list;
             if (q) {
-                // Arama tüm sekmelerde name + tr alanında çalışır.
-                return {
-                    list: items.filter((i) =>
-                        (i.name || '').toLowerCase().includes(q) || (i.tr || '').toLowerCase().includes(q),
-                    ),
-                    searching: true,
-                };
+                list = subs.flatMap((s) => s.items).filter((i) =>
+                    i.name.toLowerCase().includes(q) || (i.tr || '').toLowerCase().includes(q));
+            } else {
+                list = subs.find((s) => s.key === activeSub[groupId])?.items ?? [];
             }
-            return { list: items.filter((i) => i.family === activeTabKey), searching: false };
+            const shown = list.slice(0, MAX_RENDER);
+            grid.innerHTML = shown.length
+                ? shown.map(renderCard).join('') + (list.length > MAX_RENDER
+                    ? `<p class="grid-more">${list.length - MAX_RENDER} kalem daha — aramayla daralt.</p>` : '')
+                : '<div class="empty-state"><h3>Kayıt yok</h3></div>';
         };
 
-        const renderGrid = () => {
-            const { list, searching } = visibleItems();
-            const capped = list.slice(0, searching ? MAX_SEARCH_RESULTS : list.length);
-
-            if (capped.length === 0) {
-                grid.innerHTML = `<div class="empty-state"><h3>Aranan kriterlere uygun ürün kartı bulunamadı.</h3></div>`;
-                return;
-            }
-
-            grid.innerHTML = capped.map((p) => renderCard(p)).join('')
-                + (list.length > capped.length
-                    ? `<div class="empty-state"><h3>${list.length - capped.length} sonuç daha var — aramayı daralt.</h3></div>`
-                    : '');
-        };
-
-        renderTabs();
-        renderGrid();
-
-        // Sekme tıklama
-        tabsBar.addEventListener('click', (e) => {
-            const btn = e.target.closest('[data-tab]');
-            if (!btn) return;
-            activeTabKey = btn.dataset.tab;
-            searchInput.value = '';
-            renderTabs();
-            renderGrid();
+        pane.querySelectorAll('#sub-tabs .family-tab').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                activeSub[groupId] = btn.dataset.sub;
+                pane.querySelectorAll('#sub-tabs .family-tab').forEach((b) => b.classList.toggle('active', b === btn));
+                searchInput.value = '';
+                draw();
+            });
         });
+        searchInput.addEventListener('input', draw);
 
-        // Arama
-        searchInput.addEventListener('input', renderGrid);
-
-        // Grid delegasyonu: +/- hızlı ayar ve kart tıklaması (detaya git)
         grid.addEventListener('click', async (e) => {
-            const adjustBtn = e.target.closest('.btn-card-adjust');
-            if (adjustBtn) {
+            const adj = e.target.closest('.btn-card-adjust');
+            if (adj) {
                 e.stopPropagation();
-                const card = adjustBtn.closest('[data-item-id]');
-                const delta = adjustBtn.classList.contains('adjust-plus') ? 1 : -1;
-                const item = await adjustItemStock(card.dataset.itemId, delta);
+                const card = adj.closest('[data-item-id]');
+                const id = card.dataset.itemId;
+                const item = adj.classList.contains('adjust-plus')
+                    ? await stockIn(id, 1) : await stockOut(id, 1);
                 if (item) {
-                    showToast(`${item.name}: yeni stok ${item.qty} — hareket Faz 1'de (Supabase) kalıcılaşacak, şimdilik oturum içi.`);
-                    // Yalnız ilgili kartı tazele
+                    showToast(`${item.name}: stok ${item.qty}`);
                     card.outerHTML = renderCard(item);
                 }
                 return;
@@ -114,6 +88,8 @@ export const stockListView = {
             const card = e.target.closest('[data-item-id]');
             if (card) location.hash = `#/stok/urun/${card.dataset.itemId}`;
         });
+
+        draw();
     },
 };
 
@@ -123,13 +99,11 @@ function renderCard(p) {
     return `
         <div class="product-card bg-glass" data-item-id="${p.id}">
             <div class="card-img-wrap">
-                ${url
-                    ? `<img src="${esc(url)}" alt="${esc(p.name)}" loading="lazy">`
-                    : placeholderHtml(p)}
+                ${url ? `<img src="${esc(url)}" alt="${esc(p.name)}" loading="lazy">` : placeholderHtml(p)}
                 <span class="card-stock-status-pill ${statusPillClass(st)}">${stockStatusLabel(st)}</span>
             </div>
             <div class="card-body-content">
-                <span class="card-family-tag">${esc(familyLabels[p.family] ?? p.family)}</span>
+                <span class="card-family-tag">${esc(p.cat || p.family)}</span>
                 <h3>${esc(p.name)}</h3>
                 <div class="card-qty-row">
                     <span class="card-qty-val ${st === 'critical' ? 'text-pink' : ''}">${p.qty}</span>
@@ -137,148 +111,116 @@ function renderCard(p) {
                 </div>
             </div>
             <div class="card-quick-adjust-bar">
-                <button class="btn-card-adjust adjust-minus" title="1 azalt">− 1</button>
-                <button class="btn-card-adjust adjust-plus" title="1 artır">+ 1</button>
+                <button class="btn-card-adjust adjust-minus" title="1 çıkış">− 1</button>
+                <button class="btn-card-adjust adjust-plus" title="1 giriş">+ 1</button>
             </div>
         </div>`;
 }
 
-// ---------------------------------------------------------------------------
-// DETAY GÖRÜNÜMÜ  (#/stok/urun/<id>)
-// ---------------------------------------------------------------------------
+// ─── Ürün Detayı ───────────────────────────────────────────────────────────
 export const stockDetailView = {
-    title: 'Ürün Detay Sayfası',
-    subtitle: 'Model özellikleri, stok hareket günlüğü ve sayım ayarı.',
-
-    async render(pane, params) {
-        const item = await getItemById(params.id);
-        if (!item) {
-            pane.innerHTML = `
-                <div class="detail-actions">
-                    <button class="btn btn-outline" data-goto="stok">← Kartlara Dön</button>
-                </div>
-                <div class="grid-card bg-glass empty-state"><h3>Ürün bulunamadı (ID: ${esc(params.id)}).</h3></div>`;
-            return;
-        }
-        const tabs = await getTabs();
-        const familyLabel = tabs.find((t) => t.key === item.family)?.label ?? item.family;
+    title: '', subtitle: '',
+    async render(pane, { id }) {
+        const p = await getItemById(id);
+        if (!p) { pane.innerHTML = '<p class="empty-row">Ürün bulunamadı.</p>'; return; }
+        setHeader('Ürün Detayı', 'Stok hareketi (giriş/çıkış), bilgi düzenleme ve hareket geçmişi.');
 
         const draw = () => {
-            const st = stockStatus(item);
-            const url = photoUrl(item);
+            const st = stockStatus(p);
+            const url = photoUrl(p);
             pane.innerHTML = `
                 <div class="detail-actions">
-                    <button class="btn btn-outline" data-back-to-stock>
+                    <button class="btn btn-outline" data-goto="g/${groupOf(p)}">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><polyline points="15 18 9 12 15 6"></polyline></svg>
-                        Kartlara Dön
+                        Kataloğa Dön
                     </button>
                 </div>
-
                 <div class="detail-layout">
                     <div class="detail-left bg-glass">
-                        <div class="detail-large-img-container">
-                            ${url ? `<img src="${esc(url)}" alt="${esc(item.name)}">` : placeholderHtml(item, true)}
+                        <div class="detail-large-img">
+                            ${url ? `<img src="${esc(url)}" alt="${esc(p.name)}">` : placeholderHtml(p, true)}
                         </div>
-                        <div class="detail-quick-controls">
-                            <h2>Hızlı Stok Güncelleme</h2>
-                            <p>Fiziki sayım farkını doğrudan işlemek için kullanın. Kalıcı kayıt Faz 1'de (Supabase) — şimdilik oturum içi.</p>
-                            <div class="adjust-box">
-                                <button class="btn-adjust minus" data-qty-minus>−</button>
-                                <input type="number" class="input-qty-number" data-qty-input value="1" min="1">
-                                <button class="btn-adjust plus" data-qty-plus>+</button>
+                        <div class="detail-quick">
+                            <h2>Stok Hareketi</h2>
+                            <div class="io-row">
+                                <input type="number" id="io-amt" value="1" min="1" class="io-amt">
                             </div>
-                            <div class="adjust-actions">
-                                <button class="btn btn-primary" data-save-in>Stok Girişi Yap</button>
-                                <button class="btn btn-purple" data-save-out>Stok Çıkışı Yap</button>
+                            <div class="io-actions">
+                                <button class="btn btn-primary" id="btn-in">▲ Giriş Yap</button>
+                                <button class="btn btn-purple" id="btn-out">▼ Çıkış Yap</button>
                             </div>
                         </div>
                     </div>
-
                     <div class="detail-right">
                         <div class="grid-card bg-glass">
-                            <div class="card-header">
-                                <span class="detail-cat-tag">${esc(familyLabel)}</span>
-                                <h2>${esc(item.name)}</h2>
-                                <div class="detail-kpi-row">
-                                    <div class="detail-kpi">
-                                        <span class="lbl">Mevcut Stok</span>
-                                        <span class="val">${item.qty}</span>
-                                    </div>
-                                    <div class="detail-kpi">
-                                        <span class="lbl">Kritik Seviye</span>
-                                        <span class="val text-pink">${item.critical}</span>
-                                    </div>
-                                    <div class="detail-kpi">
-                                        <span class="lbl">Stok Sağlığı</span>
-                                        <span class="card-stock-status-pill ${statusPillClass(st)}" style="position:static;align-self:flex-start">${stockStatusLabel(st)}</span>
-                                    </div>
-                                </div>
+                            <span class="detail-cat-tag">${esc(p.family)}</span>
+                            <h2 class="detail-name">${esc(p.name)}</h2>
+                            <div class="detail-kpi-row">
+                                <div class="detail-kpi"><span class="lbl">Mevcut Stok</span><span class="val mono ${st === 'critical' ? 'text-pink' : ''}">${p.qty}</span></div>
+                                <div class="detail-kpi"><span class="lbl">Kritik Seviye</span><span class="val mono text-pink">${p.critical}</span></div>
+                                <div class="detail-kpi"><span class="lbl">Durum</span><span class="stage-pill ${st === 'critical' ? 'stage-lost' : st === 'low' ? 'stage-prep' : 'stage-won'}">${stockStatusLabel(st)}</span></div>
                             </div>
-                            <div class="detail-meta-list">
-                                <div class="meta-item"><strong>Özel Not:</strong><span>${esc(item.note || '—')}</span></div>
-                                <div class="meta-item"><strong>Koli Adedi:</strong><span>${item.boxQty ?? '—'}</span></div>
-                                <div class="meta-item"><strong>Ağırlık:</strong><span>${item.weight ?? '—'}</span></div>
-                                <div class="meta-item"><strong>Kayıt ID:</strong><span class="mono">#${item.id}</span></div>
-                                <div class="meta-item"><strong>Arama Etiketi (TR):</strong><span>${esc(item.tr || '—')}</span></div>
+                            <div class="detail-edit">
+                                <div class="form-row-2">
+                                    <div class="form-group"><label>Stok Adedi</label><input type="number" id="e-qty" value="${p.qty}"></div>
+                                    <div class="form-group"><label>Kritik Seviye</label><input type="number" id="e-crt" value="${p.critical}"></div>
+                                </div>
+                                <div class="form-row-2">
+                                    <div class="form-group"><label>Koli Adedi</label><input type="number" id="e-box" value="${p.boxQty ?? ''}"></div>
+                                    <div class="form-group"><label>Ağırlık (kg)</label><input type="text" id="e-weight" value="${p.weight ?? ''}"></div>
+                                </div>
+                                <div class="form-group"><label>Not</label><input type="text" id="e-note" value="${esc(p.note)}"></div>
+                                <div class="meta-mini">Kod/ID: #${p.id} · Arama etiketi: ${esc(p.tr || '—')}</div>
+                                <button class="btn btn-primary" id="btn-save">Bilgileri Kaydet</button>
                             </div>
                         </div>
-
                         <div class="grid-card bg-glass margin-top-lg">
-                            <div class="card-header">
-                                <h2>Bu Ürünün Hareket Geçmişi</h2>
-                                <p class="card-subtitle">Bu modele ait son stok giriş-çıkış hareketleri.</p>
-                            </div>
+                            <div class="card-header"><h2>Hareket Geçmişi</h2><p class="card-subtitle">Bu ürünün son stok giriş/çıkışları.</p></div>
                             <div class="table-container small-table">
-                                <table>
-                                    <thead>
-                                        <tr><th>Tarih</th><th>İşlem Tipi</th><th>Miktar</th><th>Kullanıcı</th></tr>
-                                    </thead>
-                                    <tbody>
-                                        ${item.history.length === 0
-                                            ? '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">Kayıt yok.</td></tr>'
-                                            : item.history.map((h) => `
-                                                <tr>
-                                                    <td class="mono" style="font-size:0.75rem">${esc(h.date || fmtWhen(h.ts))}</td>
-                                                    <td class="${h.type === 'in' ? 'move-in' : 'move-out'}">${h.type === 'in' ? 'Stok Girişi (+)' : 'Stok Çıkışı (−)'}</td>
-                                                    <td class="mono" style="font-weight:700">${h.qty}</td>
-                                                    <td>${esc(h.user || '—')}${h.note ? ` <span style="color:var(--text-muted)">(${esc(h.note)})</span>` : ''}</td>
-                                                </tr>`).join('')}
-                                    </tbody>
-                                </table>
+                                <table><thead><tr><th>Tarih</th><th>Tip</th><th>Miktar</th><th>Kullanıcı</th><th>Not</th></tr></thead>
+                                <tbody>${p.history.length ? p.history.slice(0, 40).map((h) => `
+                                    <tr>
+                                        <td class="mono">${esc(fmtWhen(h.ts ?? h.date))}</td>
+                                        <td class="${h.type === 'in' ? 'move-in' : 'move-out'}">${h.type === 'in' ? '▲ Giriş' : '▼ Çıkış'}</td>
+                                        <td class="mono">${h.qty}</td>
+                                        <td>${esc(h.user || '—')}</td>
+                                        <td>${esc(h.note || '')}</td>
+                                    </tr>`).join('') : '<tr><td colspan="5" class="empty-row">Kayıt yok — ilk giriş/çıkışta burada belirir.</td></tr>'}
+                                </tbody></table>
                             </div>
                         </div>
                     </div>
                 </div>`;
 
-            // Geri dönüş
-            pane.querySelector('[data-back-to-stock]').addEventListener('click', () => { location.hash = '#/stok'; });
-
-            // +/- sayaç
-            const input = pane.querySelector('[data-qty-input]');
-            pane.querySelector('[data-qty-plus]').addEventListener('click', () => {
-                input.value = (parseInt(input.value, 10) || 0) + 1;
+            const amt = () => pane.querySelector('#io-amt').value;
+            pane.querySelector('#btn-in').addEventListener('click', async () => {
+                await stockIn(p.id, amt()); showToast(`+${amt()} giriş: ${p.name}`); draw();
             });
-            pane.querySelector('[data-qty-minus]').addEventListener('click', () => {
-                input.value = Math.max(1, (parseInt(input.value, 10) || 1) - 1);
+            pane.querySelector('#btn-out').addEventListener('click', async () => {
+                await stockOut(p.id, amt()); showToast(`−${amt()} çıkış: ${p.name}`); draw();
             });
-
-            // Giriş / Çıkış kaydet (in-memory + toast, sonra yeniden çiz)
-            const applyAdjust = async (sign) => {
-                const val = parseInt(input.value, 10);
-                if (!Number.isFinite(val) || val <= 0) {
-                    showToast('Geçerli bir miktar girin.');
-                    return;
-                }
-                const updated = await adjustItemStock(item.id, sign * val, { note: 'Manuel sayım düzeltmesi' });
-                if (updated) {
-                    showToast(`${updated.name}: yeni stok ${updated.qty} — kalıcı kayıt Faz 1'de (Supabase).`);
-                    draw();
-                }
-            };
-            pane.querySelector('[data-save-in]').addEventListener('click', () => applyAdjust(1));
-            pane.querySelector('[data-save-out]').addEventListener('click', () => applyAdjust(-1));
+            pane.querySelector('#btn-save').addEventListener('click', async () => {
+                await saveProduct(p.id, {
+                    qty: pane.querySelector('#e-qty').value,
+                    critical: pane.querySelector('#e-crt').value,
+                    boxQty: pane.querySelector('#e-box').value,
+                    weight: pane.querySelector('#e-weight').value,
+                    note: pane.querySelector('#e-note').value,
+                });
+                showToast('Kaydedildi.'); draw();
+            });
+            pane.querySelectorAll('[data-goto]').forEach((el) =>
+                el.addEventListener('click', () => { location.hash = `#/${el.dataset.goto}`; }));
         };
-
         draw();
     },
 };
+
+// Ürünün ait olduğu üst grubu bul (geri dönüş linki için)
+function groupOf(p) {
+    const map = {
+        finished: 'finished', lighting: 'production', vario: 'production', switch: 'production',
+        nozzle: 'production', powerbox: 'production', cable: 'cable', pano: 'pano', motor: 'motor',
+    };
+    return map[p.family] ?? 'finished';
+}

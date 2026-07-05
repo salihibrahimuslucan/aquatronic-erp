@@ -74,3 +74,56 @@ tr.row-critical td:nth-child(2) { color: var(--color-pink); font-weight: 600; }
 
 .card-ph.card-ph-lg .ph-ico { font-size: 4.5rem; }
 .card-ph.card-ph-lg .ph-letter { font-size: 1.1rem; }
+
+/* ── Operasyon görünümü ek bileşenleri (v2 üstüne) ── */
+.count-chip {
+    font-size: 0.72rem;
+    font-family: 'JetBrains Mono', monospace;
+    background: rgba(0, 245, 212, 0.12);
+    color: var(--color-cyan);
+    padding: 1px 8px;
+    border-radius: 20px;
+    margin-left: 6px;
+    vertical-align: middle;
+}
+.btn-sm { padding: 4px 10px !important; font-size: 0.72rem !important; }
+.grid-more { grid-column: 1 / -1; text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 12px; }
+
+/* Ürün detay: büyük görsel + hızlı stok hareketi */
+.detail-large-img {
+    width: 100%; aspect-ratio: 1/1; border-radius: var(--border-radius-md);
+    background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass);
+    display: flex; align-items: center; justify-content: center; overflow: hidden; margin-bottom: 18px;
+}
+.detail-large-img img { width: 100%; height: 100%; object-fit: contain; padding: 14px; background: rgba(255,255,255,0.92); }
+.detail-quick h2 { font-size: 1rem; margin-bottom: 10px; }
+.io-row { margin-bottom: 10px; }
+.io-amt { width: 100%; text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 1.1rem; font-weight: 700; }
+.io-actions { display: flex; gap: 8px; }
+.io-actions .btn { flex: 1; justify-content: center; }
+.detail-name { font-size: 1.35rem; font-weight: 700; margin: 4px 0 14px; color: #fff; }
+.detail-edit { margin-top: 18px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 16px; }
+.meta-mini { font-size: 0.72rem; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; margin: 8px 0 14px; }
+
+/* Aktif/Planlı: satır-içi ekleme formu */
+.start-form {
+    display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+    padding: 12px; margin-bottom: 14px; border-radius: var(--border-radius-md);
+    background: rgba(0, 245, 212, 0.04); border: 1px solid var(--border-glass);
+}
+.start-form select, .start-form input { width: auto; flex: 1; min-width: 120px; }
+.start-form .btn { flex: 0 0 auto; }
+
+/* Planlı üretim kartları */
+.planned-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.planned-card { position: relative; border: 1px solid var(--border-glass); border-radius: var(--border-radius-md); overflow: hidden; }
+.planned-body { padding: 16px; }
+.planned-name { font-size: 1rem; font-weight: 700; }
+.planned-cat { font-size: 0.72rem; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; margin-bottom: 8px; }
+.planned-note { font-size: 0.82rem; color: var(--text-secondary); line-height: 1.4; min-height: 20px; }
+.planned-meta { font-size: 0.68rem; color: var(--text-muted); margin-top: 10px; }
+.planned-del {
+    position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; border-radius: 6px;
+    background: rgba(247,37,133,0.1); color: var(--color-pink); border: 1px solid rgba(247,37,133,0.25);
+    cursor: pointer; font-size: 0.8rem; line-height: 1;
+}
