@@ -17,6 +17,7 @@ const FAMILY_ICONS = {
     chemical: '🧪',
     switch: '⚙️',
     motor: '🔩',
+    enclosure: '🛡️',
 };
 
 export function iconForFamily(key) {

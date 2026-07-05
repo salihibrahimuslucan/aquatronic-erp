@@ -93,12 +93,20 @@ function normalizeItem(raw, idx) {
     };
 }
 
-let _itemsCache = null;
-function allItems() {
-    if (_itemsCache) return _itemsCache;
+// Gizli sekmelerin kalemleri katalogda GÖRÜNMEZ (grid/arama/KPI dışı)
+// ama veri durur — ID ile detayına ulaşılabilir (rawItems).
+const _hiddenFamilies = new Set((tabsJson ?? []).filter((t) => t.hidden).map((t) => t.key));
+
+let _rawCache = null;
+function rawItems() {
+    if (_rawCache) return _rawCache;
     const source = itemsJson ?? sampleItems;
-    _itemsCache = source.map((raw, idx) => normalizeItem(raw, idx));
-    return _itemsCache;
+    _rawCache = source.map((raw, idx) => normalizeItem(raw, idx));
+    return _rawCache;
+}
+
+function allItems() {
+    return rawItems().filter((i) => !_hiddenFamilies.has(i.family));
 }
 
 export function stockStatus(item) {
@@ -119,7 +127,7 @@ export async function getItems() {
 
 export async function getItemById(id) {
     const numId = Number(id);
-    return allItems().find((i) => i.id === numId || String(i.id) === String(id)) ?? null;
+    return rawItems().find((i) => i.id === numId || String(i.id) === String(id)) ?? null;
 }
 
 // Bellek-içi stok güncelleme (Faz 1'de Supabase'e bağlanacak; kalıcılık YOK).

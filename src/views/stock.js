@@ -12,6 +12,9 @@ const MAX_SEARCH_RESULTS = 120;
 // Oturum içinde sekme seçimi hatırlansın (görünüme geri dönünce aynı sekme).
 let activeTabKey = null;
 
+// Kart etiketinde ham key yerine sekme etiketi (render'da doldurulur).
+let familyLabels = {};
+
 // ---------------------------------------------------------------------------
 // LİSTE GÖRÜNÜMÜ  (#/stok)
 // ---------------------------------------------------------------------------
@@ -21,6 +24,7 @@ export const stockListView = {
 
     async render(pane) {
         const [items, tabs] = await Promise.all([getItems(), getTabs()]);
+        familyLabels = Object.fromEntries(tabs.map((t) => [t.key, t.label]));
         if (!activeTabKey || !tabs.some((t) => t.key === activeTabKey)) {
             // Foto-öncelikli vitrin: ilk açılış Bitmiş Ürünler sekmesi
             activeTabKey = tabs.some((t) => t.key === 'finished') ? 'finished' : (tabs[0]?.key ?? null);
@@ -125,7 +129,7 @@ function renderCard(p) {
                 <span class="card-stock-status-pill ${statusPillClass(st)}">${stockStatusLabel(st)}</span>
             </div>
             <div class="card-body-content">
-                <span class="card-family-tag">${esc(p.family)}</span>
+                <span class="card-family-tag">${esc(familyLabels[p.family] ?? p.family)}</span>
                 <h3>${esc(p.name)}</h3>
                 <div class="card-qty-row">
                     <span class="card-qty-val ${st === 'critical' ? 'text-pink' : ''}">${p.qty}</span>

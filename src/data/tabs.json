@@ -1,75 +1,21 @@
 [
  {
-  "key": "pcbcomp",
-  "label": "PCB Bilesenleri",
+  "key": "finished",
+  "label": "Bitmiş Ürünler",
   "hidden": false,
-  "count": 220
+  "count": 26
  },
  {
-  "key": "vario",
-  "label": "Vario Motorlar",
+  "key": "lighting",
+  "label": "Aydınlatma",
   "hidden": false,
-  "count": 48
+  "count": 37
  },
  {
   "key": "powerbox",
   "label": "PowerBox",
   "hidden": false,
-  "count": 42
- },
- {
-  "key": "lighting",
-  "label": "Aydinlatma",
-  "hidden": false,
-  "count": 37
- },
- {
-  "key": "pcbcard",
-  "label": "PCB Kartlari",
-  "hidden": false,
-  "count": 30
- },
- {
-  "key": "xhsocket",
-  "label": "XH Soket",
-  "hidden": false,
-  "count": 28
- },
- {
-  "key": "box",
-  "label": "Kutular",
-  "hidden": false,
-  "count": 27
- },
- {
-  "key": "finished",
-  "label": "Bitmis Urunler",
-  "hidden": false,
-  "count": 26
- },
- {
-  "key": "cable",
-  "label": "Kablolar",
-  "hidden": false,
-  "count": 26
- },
- {
-  "key": "pano",
-  "label": "Pano Malzemeleri",
-  "hidden": false,
-  "count": 17
- },
- {
-  "key": "nozzle",
-  "label": "Nozullar",
-  "hidden": false,
-  "count": 15
- },
- {
-  "key": "chemical",
-  "label": "Kimyasallar",
-  "hidden": false,
-  "count": 13
+  "count": 41
  },
  {
   "key": "switch",
@@ -78,9 +24,69 @@
   "count": 7
  },
  {
+  "key": "nozzle",
+  "label": "Nozullar",
+  "hidden": false,
+  "count": 15
+ },
+ {
+  "key": "cable",
+  "label": "Kablolar & Soketler",
+  "hidden": false,
+  "count": 27
+ },
+ {
+  "key": "box",
+  "label": "Ambalaj Kutuları",
+  "hidden": false,
+  "count": 12
+ },
+ {
+  "key": "enclosure",
+  "label": "Muhafaza & Buat",
+  "hidden": false,
+  "count": 15
+ },
+ {
+  "key": "pano",
+  "label": "Pano Malzemeleri",
+  "hidden": false,
+  "count": 17
+ },
+ {
+  "key": "pcbcomp",
+  "label": "PCB Bileşenleri",
+  "hidden": true,
+  "count": 220
+ },
+ {
+  "key": "vario",
+  "label": "Vario Motorlar",
+  "hidden": true,
+  "count": 48
+ },
+ {
+  "key": "pcbcard",
+  "label": "PCB Kartları",
+  "hidden": true,
+  "count": 30
+ },
+ {
+  "key": "xhsocket",
+  "label": "XH Soket",
+  "hidden": true,
+  "count": 28
+ },
+ {
+  "key": "chemical",
+  "label": "Kimyasallar",
+  "hidden": true,
+  "count": 13
+ },
+ {
   "key": "motor",
   "label": "Motorlar",
-  "hidden": false,
+  "hidden": true,
   "count": 6
  }
 ]
