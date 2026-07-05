@@ -1,5 +1,6 @@
 // Genel Bakış — 4 KPI + kritik stok tablosu (v2 kalıbı; chart YOK, sade).
 import { getKpis, getCriticalItems, stockStatus, stockStatusLabel } from '../data/store.js';
+import { WITH_SALES, getOpenOpportunityCount } from '@sales';
 import { photoUrl, iconForFamily, statusPillClass, esc } from './helpers.js';
 
 const MAX_CRITICAL_ROWS = 14;
@@ -13,7 +14,33 @@ export const overviewView = {
     subtitle: 'Aquatronic üretim, stok ve teklif kontrol arayüzü.',
 
     async render(pane) {
-        const [kpis, critical] = await Promise.all([getKpis(), getCriticalItems()]);
+        const [kpis, critical, openOpps] = await Promise.all([
+            getKpis(), getCriticalItems(),
+            WITH_SALES ? getOpenOpportunityCount() : Promise.resolve(null),
+        ]);
+
+        // 4. KPI kartı: satış build'inde CRM fırsatları, üretim build'inde fason iş sayısı
+        const fourthKpi = WITH_SALES ? `
+                <div class="kpi-card bg-glass">
+                    <div class="kpi-icon icon-green">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg>
+                    </div>
+                    <div class="kpi-info">
+                        <h3>Açık Satış Fırsatı</h3>
+                        <p class="kpi-value mono">${openOpps ?? '—'}</p>
+                        <span class="kpi-sub">CRM modülünde takipte</span>
+                    </div>
+                </div>` : `
+                <div class="kpi-card bg-glass">
+                    <div class="kpi-icon icon-green">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                    </div>
+                    <div class="kpi-info">
+                        <h3>Dış Üretim İşleri</h3>
+                        <p class="kpi-value mono">${kpis.outsourceCount ?? 0}</p>
+                        <span class="kpi-sub">Fason üretim kayıtları</span>
+                    </div>
+                </div>`;
 
         pane.innerHTML = `
             <div class="kpi-grid">
@@ -47,16 +74,7 @@ export const overviewView = {
                         <span class="kpi-sub">Şu an üretimdeki iş emirleri</span>
                     </div>
                 </div>
-                <div class="kpi-card bg-glass">
-                    <div class="kpi-icon icon-green">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg>
-                    </div>
-                    <div class="kpi-info">
-                        <h3>Açık Satış Fırsatı</h3>
-                        <p class="kpi-value mono">${kpis.openOpportunityCount ?? '—'}</p>
-                        <span class="kpi-sub">CRM modülünde takipte</span>
-                    </div>
-                </div>
+                ${fourthKpi}
             </div>
 
             <div class="grid-card bg-glass margin-top-lg">

@@ -9,9 +9,9 @@
 // Menü yapısı = netlify BASE_NAV_GROUPS (aquatronic-v7.html) — Salih onaylı:
 //   active · planned · finished · production(alt) · cable&socket(alt) · pano/psu · motor · dış · pool
 
-import { crmDeals as sampleCrmDeals } from './sample-data.js';
-
-const dataModules = import.meta.glob('./{items,outsource,ops,crm-snapshot}.json', { eager: true });
+// DİKKAT: CRM verisi/kodu BU DOSYADA DEĞİL — src/data/crm-store.js'te.
+// build:uretim paketi crm-store'u hiç import etmez (satış verisi sızmaz).
+const dataModules = import.meta.glob('./{items,outsource,ops}.json', { eager: true });
 function loadJson(name) {
     const mod = dataModules[`./${name}.json`];
     return mod ? (mod.default ?? mod) : null;
@@ -19,7 +19,6 @@ function loadJson(name) {
 const itemsJson = loadJson('items');
 const outsourceJson = loadJson('outsource') ?? [];
 const opsJson = loadJson('ops') ?? {};
-const crmJson = loadJson('crm-snapshot');
 
 // ─── Menü grupları (operasyon tarafı) ────────────────────────────────────
 // type: stock = ürün kartı grid'i (subs ile) · active/planned/outsource/pool = özel görünüm
@@ -270,7 +269,7 @@ export async function getKpis() {
         totalItems: state.items.length,
         criticalCount: critical.length,
         activeCount: state.activeRuns.length,
-        openOpportunityCount: crmJson ? crmJson.pipeline.length : 0,
+        outsourceCount: state.dis.length,
     };
 }
 export async function getCriticalItems() {

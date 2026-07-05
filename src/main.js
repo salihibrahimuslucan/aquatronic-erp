@@ -3,7 +3,7 @@ import { stockGroupView, stockDetailView } from './views/stock.js';
 import { activeView, plannedView, poolView } from './views/operations.js';
 import { outsourceView } from './views/outsource.js';
 import { ledgerView } from './views/ledger.js';
-import { crmPipelineView, crmDealView, crmLogView } from './views/crm.js';
+import { WITH_SALES, crmPipelineView, crmDealView, crmLogView, salesNavHtml } from '@sales';
 import { getOpGroups, getGroup, getKpis } from './data/store.js';
 
 // ─── Menü ikonları (SVG line) ──────────────────────────────────────────────
@@ -38,12 +38,12 @@ function buildNav() {
         `<a href="#/defter" class="nav-item" data-nav="defter">${svg('defter')}<span>Hareket Defteri</span></a>`,
     ].join('');
 
+    const salesLinks = salesNavHtml(svg);
+
     document.getElementById('nav-menu').innerHTML = `
         <div class="nav-separator">Operasyon</div>
         ${opLinks}
-        <div class="nav-separator">Satış</div>
-        <a href="#/crm" class="nav-item" data-nav="crm">${svg('crm')}<span>CRM Pipeline</span></a>
-        <a href="#/crm/log" class="nav-item" data-nav="crm/log">${svg('crmlog')}<span>Aktivite Günlüğü</span></a>
+        ${salesLinks}
         <div class="nav-separator">Sonraki Fazlar</div>
         <a class="nav-item disabled" tabindex="-1">${svg('cart')}<span>Satın Alma</span><span class="badge badge-muted">Faz</span></a>
         <a class="nav-item disabled" tabindex="-1">${svg('money')}<span>Muhasebe</span><span class="badge badge-muted">Faz</span></a>
@@ -70,9 +70,9 @@ function resolve(seg) {
     }
     if (seg[0] === 'stok' && seg[1] === 'urun' && seg[2]) return { view: stockDetailView, params: { id: seg[2] }, navKey: null };
     if (seg[0] === 'defter') return { view: ledgerView, params: {}, navKey: 'defter' };
-    if (seg[0] === 'crm' && seg[1] === 'deal' && seg[2]) return { view: crmDealView, params: { id: seg[2] }, navKey: 'crm' };
-    if (seg[0] === 'crm' && seg[1] === 'log') return { view: crmLogView, params: {}, navKey: 'crm/log' };
-    if (seg[0] === 'crm') return { view: crmPipelineView, params: {}, navKey: 'crm' };
+    if (WITH_SALES && seg[0] === 'crm' && seg[1] === 'deal' && seg[2]) return { view: crmDealView, params: { id: seg[2] }, navKey: 'crm' };
+    if (WITH_SALES && seg[0] === 'crm' && seg[1] === 'log') return { view: crmLogView, params: {}, navKey: 'crm/log' };
+    if (WITH_SALES && seg[0] === 'crm') return { view: crmPipelineView, params: {}, navKey: 'crm' };
     return { view: overviewView, params: {}, navKey: 'genel' };
 }
 

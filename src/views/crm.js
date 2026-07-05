@@ -5,7 +5,7 @@ import {
     getCrm, getDealById, getDealActivities,
     normalizeStage, parseCrmDate, parseCrmMoney, isOverdue,
     crmAddDeal, crmUpdateDeal, crmAddActivity,
-} from '../data/store.js';
+} from '../data/crm-store.js';
 
 function esc(s) {
     return String(s ?? '').replace(/[&<>"']/g, (c) => (

@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:uretim": "vite build --mode uretim && node tools/build-uretim.mjs",
+    "build:all": "vite build && npm run build:uretim",
     "preview": "vite preview",
     "crm-api": "python tools/crm_api.py"
   },
