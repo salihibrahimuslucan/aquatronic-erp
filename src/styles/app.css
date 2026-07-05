@@ -1,0 +1,328 @@
+/* Aquatronic ERP — uygulamaya özel bileşenler (base.css design-ref kanonunun üstüne) */
+
+/* Marka logosu (PNG) */
+.brand-logo img {
+    width: 42px;
+    height: 42px;
+    object-fit: contain;
+    filter: drop-shadow(0 0 8px rgba(0, 187, 249, 0.35));
+}
+
+.user-avatar {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    border: 1.5px solid var(--color-blue);
+    background: linear-gradient(135deg, rgba(0, 187, 249, 0.2), rgba(114, 9, 183, 0.2));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    color: var(--color-cyan);
+}
+
+/* Nav bölüm etiketi + pasif (sonraki faz) modüller */
+.nav-section-label {
+    margin: 18px 16px 4px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.nav-item.disabled {
+    color: var(--text-muted);
+    opacity: 0.55;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.badge-pink {
+    background-color: rgba(247, 37, 133, 0.15);
+    color: var(--color-pink);
+    border: 1px solid rgba(247, 37, 133, 0.3);
+}
+
+.badge-muted {
+    background-color: rgba(255, 255, 255, 0.04);
+    color: var(--text-muted);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Sayısal alanlar */
+.mono {
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* Stok durum rozetleri */
+.stock-badge {
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.stock-ok { background-color: rgba(6, 214, 160, 0.12); color: var(--color-green); }
+.stock-low { background-color: rgba(255, 209, 102, 0.12); color: var(--color-yellow); }
+.stock-critical {
+    background-color: rgba(247, 37, 133, 0.12);
+    color: var(--color-pink);
+    box-shadow: 0 0 10px rgba(247, 37, 133, 0.15);
+}
+
+/* Hareket defteri tip rozetleri */
+.move-in { color: var(--color-green); }
+.move-out { color: var(--color-pink); }
+
+/* Kanban panosu (Üretim) */
+.kanban-board {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    align-items: start;
+}
+
+.kanban-column {
+    padding: 16px;
+    min-height: 220px;
+}
+
+.kanban-column-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.kanban-column-header h3 {
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+.kanban-count {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    padding: 2px 9px;
+    border-radius: 20px;
+    background-color: rgba(255, 255, 255, 0.05);
+    color: var(--text-secondary);
+}
+
+.kanban-col-planli h3 { color: var(--color-blue); }
+.kanban-col-uretimde h3 { color: var(--color-yellow); }
+.kanban-col-havuz_testi h3 { color: var(--color-cyan); }
+.kanban-col-bitmis h3 { color: var(--color-green); }
+
+.order-card {
+    padding: 14px;
+    border-radius: var(--border-radius-md);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    background-color: rgba(255, 255, 255, 0.02);
+    margin-bottom: 10px;
+    transition: var(--transition-smooth);
+    cursor: pointer;
+    border-left: 3px solid transparent;
+}
+
+.order-card:hover {
+    background-color: rgba(0, 245, 212, 0.04);
+    border-color: rgba(0, 245, 212, 0.15);
+    transform: translateY(-2px);
+}
+
+.kanban-col-planli .order-card { border-left-color: var(--color-blue); }
+.kanban-col-uretimde .order-card { border-left-color: var(--color-yellow); }
+.kanban-col-havuz_testi .order-card { border-left-color: var(--color-cyan); }
+.kanban-col-bitmis .order-card { border-left-color: var(--color-green); }
+
+.order-card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+.order-id {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+.order-qty {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--color-cyan);
+}
+
+.order-product {
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 8px;
+    line-height: 1.35;
+}
+
+.order-meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+}
+
+/* CRM pipeline */
+.pipeline-board {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    align-items: start;
+}
+
+.pipeline-col-lead h3 { color: var(--text-secondary); }
+.pipeline-col-teklif h3 { color: var(--color-blue); }
+.pipeline-col-muzakere h3 { color: var(--color-yellow); }
+.pipeline-col-kazanildi h3 { color: var(--color-green); }
+
+.pipeline-col-lead .order-card { border-left-color: var(--text-muted); }
+.pipeline-col-teklif .order-card { border-left-color: var(--color-blue); }
+.pipeline-col-muzakere .order-card { border-left-color: var(--color-yellow); }
+.pipeline-col-kazanildi .order-card { border-left-color: var(--color-green); }
+
+.deal-company {
+    font-size: 0.9rem;
+    font-weight: 700;
+    margin-bottom: 2px;
+}
+
+.deal-country {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+}
+
+.deal-subject {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    line-height: 1.4;
+    margin-bottom: 10px;
+}
+
+.deal-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--color-cyan);
+}
+
+.deal-last-action {
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
+    line-height: 1.4;
+}
+
+/* Kolon toplamı (pipeline) */
+.pipeline-total {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    margin-top: 4px;
+}
+
+/* Kritik stok listesi (genel bakış sağ kart) */
+.critical-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.critical-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: var(--border-radius-md);
+    background-color: rgba(247, 37, 133, 0.05);
+    border: 1px solid rgba(247, 37, 133, 0.12);
+}
+
+.critical-row .name {
+    font-size: 0.8rem;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+.critical-row .code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    display: block;
+}
+
+.critical-row .qty {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--color-pink);
+    white-space: nowrap;
+}
+
+.critical-row .qty span {
+    color: var(--text-muted);
+    font-weight: 400;
+    font-size: 0.7rem;
+}
+
+/* Görünüm içi bölüm başlığı */
+.section-title {
+    margin: 28px 0 14px;
+    font-size: 1.05rem;
+    font-weight: 600;
+}
+
+.section-title .card-subtitle {
+    display: block;
+    margin-top: 2px;
+    font-weight: 400;
+}
+
+/* Duyarlılık — kanban/pipeline dar ekranda yatay kaydırma */
+@media (max-width: 1200px) {
+    .kanban-board, .pipeline-board {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 900px) {
+    .kanban-board, .pipeline-board {
+        grid-template-columns: 1fr;
+    }
+    .header-search {
+        width: auto;
+        flex-grow: 1;
+    }
+    .main-content {
+        padding: 16px;
+    }
+    .welcome-banner {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+    .view-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+    .filter-bar {
+        flex-wrap: wrap;
+    }
+}

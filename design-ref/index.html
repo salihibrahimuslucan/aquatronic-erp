@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aquatronic - Su & Işık Teknolojileri ERP</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="index.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-logo">
+                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" fill="url(#grad-water)"/>
+                        <path d="M12 5.5l3.5 3.5a5 5 0 1 1-7 0z" fill="#00f5d4"/>
+                        <circle cx="12" cy="14" r="2" fill="#ffffff" />
+                        <defs>
+                            <linearGradient id="grad-water" x1="12" y1="2.69" x2="12" y2="22" gradientUnits="userSpaceOnUse">
+                                <stop stop-color="#00bbf9"/>
+                                <stop offset="1" stop-color="#7209b7"/>
+                            </linearGradient>
+                        </defs>
+                    </svg>
+                </div>
+                <div class="brand-info">
+                    <h2>AQUATRONIC</h2>
+                    <span>SU & IŞIK TEKNOLOJİLERİ</span>
+                </div>
+            </div>
+
+            <nav class="nav-menu">
+                <a href="#" class="nav-item active" data-tab="dashboard">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="nav-icon"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                    <span>Gösterge Paneli</span>
+                </a>
+                <a href="#" class="nav-item" data-tab="projects">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="nav-icon"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                    <span>Projeler</span>
+                    <span class="badge badge-cyan">6</span>
+                </a>
+                <a href="#" class="nav-item" data-tab="inventory">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="nav-icon"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+                    <span>Envanter & Cihazlar</span>
+                </a>
+                <a href="#" class="nav-item" data-tab="service">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="nav-icon"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>
+                    <span>Teknik Servis & Destek</span>
+                    <span class="badge badge-purple">2</span>
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="system-status">
+                    <div class="status-pulse green"></div>
+                    <div class="status-details">
+                        <p>DMX Sunucuları</p>
+                        <span>Çevrimiçi (Gecikme: 8ms)</span>
+                    </div>
+                </div>
+                <div class="user-profile-simple">
+                    <img src="https://api.dicebear.com/7.x/bottts/svg?seed=aquatronicAdmin" alt="User Avatar">
+                    <div class="user-text">
+                        <h4>M. Salih Erdem</h4>
+                        <span>Sistem Yöneticisi</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Header -->
+            <header class="main-header">
+                <div class="header-search">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="search-icon"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                    <input type="text" placeholder="Proje, ekipman veya servis kaydı ara...">
+                </div>
+                <div class="header-actions">
+                    <div class="notification-trigger">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="header-icon"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+                        <span class="notification-indicator"></span>
+                    </div>
+                    <button class="btn btn-primary" id="btn-quick-project">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="btn-icon"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                        Yeni Proje Ekle
+                    </button>
+                </div>
+            </header>
+
+            <!-- Dynamic Tab Content -->
+            <div class="tab-viewport">
+                
+                <!-- 1. DASHBOARD VIEW -->
+                <section class="tab-pane active" id="dashboard-tab">
+                    <div class="welcome-banner">
+                        <div class="welcome-text">
+                            <h1>Su ve Işık Kontrol Paneli</h1>
+                            <p>Aquatronic akıllı fıskiye ve otomasyon sistemlerinde güncel durum analizi.</p>
+                        </div>
+                        <div class="live-clock" id="live-time">17:08:18</div>
+                    </div>
+
+                    <!-- KPI Cards Grid -->
+                    <div class="kpi-grid">
+                        <div class="kpi-card bg-glass">
+                            <div class="kpi-icon icon-cyan">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+                            </div>
+                            <div class="kpi-info">
+                                <h3>Aktif Proje Hacmi</h3>
+                                <p class="kpi-value">₺4.820.000</p>
+                                <span class="kpi-trend positive">↑ %12.4 (Geçen aya göre)</span>
+                            </div>
+                        </div>
+                        <div class="kpi-card bg-glass">
+                            <div class="kpi-icon icon-blue">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path></svg>
+                            </div>
+                            <div class="kpi-info">
+                                <h3>Su Tüketim & Tasarruf</h3>
+                                <p class="kpi-value">12.400 m³</p>
+                                <span class="kpi-trend dynamic">Resirküle Su Oranı: %98.4</span>
+                            </div>
+                        </div>
+                        <div class="kpi-card bg-glass">
+                            <div class="kpi-icon icon-purple">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+                            </div>
+                            <div class="kpi-info">
+                                <h3>Envanter Alarmı</h3>
+                                <p class="kpi-value">3 Kritik</p>
+                                <span class="kpi-trend negative">Low: RGB LED & Sürücü Kartları</span>
+                            </div>
+                        </div>
+                        <div class="kpi-card bg-glass">
+                            <div class="kpi-icon icon-green">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                            </div>
+                            <div class="kpi-info">
+                                <h3>Tamamlanan Gösteriler</h3>
+                                <p class="kpi-value">148 Lokasyon</p>
+                                <span class="kpi-trend positive">Aktif Çalışan: 145 / Servis: 3</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Charts & Realtime Grid -->
+                    <div class="dashboard-grid">
+                        <div class="grid-card bg-glass col-span-2">
+                            <div class="card-header">
+                                <h2>Aylık Proje ve Kurulum Aşamaları</h2>
+                                <span class="card-subtitle">Farklı aşamalardaki su & ışık projeleri takibi</span>
+                            </div>
+                            <div class="chart-container">
+                                <canvas id="projectPipelineChart"></canvas>
+                            </div>
+                        </div>
+                        <div class="grid-card bg-glass">
+                            <div class="card-header">
+                                <h2>Aktif Müzikli Fıskiye Simülasyonu</h2>
+                                <span class="badge badge-glow-cyan">CANLI İZLEME</span>
+                            </div>
+                            <div class="simulation-widget">
+                                <div class="fountain-visual">
+                                    <div class="wave wave1"></div>
+                                    <div class="wave wave2"></div>
+                                    <div class="wave wave3"></div>
+                                    <div class="light-beam left"></div>
+                                    <div class="light-beam right"></div>
+                                    <div class="visual-meta">
+                                        <span class="fountain-name">Kadıköy Meydan Gösterisi</span>
+                                        <span class="fountain-status-tag">RGB Modu: Senkronize Müzik</span>
+                                    </div>
+                                </div>
+                                <div class="sim-metrics">
+                                    <div class="metric-row">
+                                        <span>Pompa Frekansı:</span>
+                                        <span class="metric-val">42.5 Hz</span>
+                                    </div>
+                                    <div class="metric-row">
+                                        <span>DMX Sinyali:</span>
+                                        <span class="metric-val text-cyan">GÖNDERİLİYOR (100 FPS)</span>
+                                    </div>
+                                    <div class="metric-row">
+                                        <span>Ortalama Basınç:</span>
+                                        <span class="metric-val text-purple">3.4 Bar</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recent Projects Table on Dashboard -->
+                    <div class="grid-card bg-glass margin-top-lg">
+                        <div class="card-header flex-row">
+                            <div>
+                                <h2>Son Başlatılan Animasyon Projeleri</h2>
+                                <p class="card-subtitle">Şu anda montaj, tasarım ve test aşamasında olan ana projeler</p>
+                            </div>
+                            <button class="btn btn-outline" onclick="switchTab('projects')">Tümünü Yönet</button>
+                        </div>
+                        <div class="table-container">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Proje Adı</th>
+                                        <th>Lokasyon</th>
+                                        <th>Başlangıç Tarihi</th>
+                                        <th>Proje Bedeli</th>
+                                        <th>Aşama</th>
+                                        <th>İlerleme</th>
+                                        <th>Durum</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="dashboard-recent-projects">
+                                    <!-- Populated via JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 2. PROJECTS VIEW -->
+                <section class="tab-pane" id="projects-tab">
+                    <div class="view-header">
+                        <div>
+                            <h1>Proje Kontrol Paneli</h1>
+                            <p>Müzikli fıskiye sistemleri, su animasyonları ve mekanik montaj aşamalarının detaylı yönetimi.</p>
+                        </div>
+                        <div class="filter-bar">
+                            <select id="project-stage-filter">
+                                <option value="all">Tüm Aşamalar</option>
+                                <option value="design">Tasarım & 3D Modelleme</option>
+                                <option value="assembly">Mekanik Montaj</option>
+                                <option value="cabling">Elektrik / Kablolama</option>
+                                <option value="test">Test & Kalibrasyon</option>
+                                <option value="completed">Tamamlandı</option>
+                            </select>
+                            <button class="btn btn-primary" id="btn-add-project-view">Yeni Proje Oluştur</button>
+                        </div>
+                    </div>
+
+                    <div class="grid-card bg-glass">
+                        <div class="table-container">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Proje Kodu</th>
+                                        <th>Proje Adı</th>
+                                        <th>Müşteri</th>
+                                        <th>Lokasyon</th>
+                                        <th>Aşama</th>
+                                        <th>Mekanik/Elektrik/Yazılım</th>
+                                        <th>Proje İlerleme</th>
+                                        <th>İşlemler</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="projects-table-body">
+                                    <!-- Populated dynamically via JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 3. INVENTORY VIEW -->
+                <section class="tab-pane" id="inventory-tab">
+                    <div class="view-header">
+                        <div>
+                            <h1>Envanter & Donanım Kataloğu</h1>
+                            <p>Fıskiye pompaları, DMX LED su altı aydınlatmaları, otomasyon valfleri ve püskürtme nozulları kontrolü.</p>
+                        </div>
+                        <div class="filter-bar">
+                            <input type="text" id="inventory-search" placeholder="Ekipman adı veya OEM kodu ara...">
+                            <select id="inventory-status-filter">
+                                <option value="all">Tüm Durumlar</option>
+                                <option value="in_stock">Yeterli Stok</option>
+                                <option value="low_stock">Düşük Stok Alarmı</option>
+                                <option value="out_of_stock">Stokta Yok</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="inventory-grid" id="inventory-items-container">
+                        <!-- Populated dynamically via JS -->
+                    </div>
+                </section>
+
+                <!-- 4. TECHNICAL SERVICE VIEW -->
+                <section class="tab-pane" id="service-tab">
+                    <div class="view-header">
+                        <div>
+                            <h1>Teknik Servis & Bakım Yönetimi</h1>
+                            <p>Uluslararası ve yerel projelerdeki fıskiye kalibrasyonları, pompa arızaları ve yazılım güncellemeleri.</p>
+                        </div>
+                        <button class="btn btn-purple" id="btn-add-ticket">Destek Kaydı Aç</button>
+                    </div>
+
+                    <div class="service-layout">
+                        <!-- Left: Ticket List -->
+                        <div class="service-left">
+                            <div class="grid-card bg-glass h-full">
+                                <div class="card-header">
+                                    <h2>Aktif Destek Talepleri</h2>
+                                </div>
+                                <div class="ticket-list" id="ticket-list-container">
+                                    <!-- Populated dynamically via JS -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Right: Active Ticket Details -->
+                        <div class="service-right">
+                            <div class="grid-card bg-glass h-full ticket-details-panel" id="ticket-details-panel">
+                                <div class="empty-state">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="empty-icon"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>
+                                    <h3>Detayları Görüntülemek için Bir Kayıt Seçin</h3>
+                                    <p>İlgili teknik destek talebine atanan teknisyenleri, konuşma loglarını ve donanım değişim geçmişini görebilirsiniz.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- Modals -->
+    <!-- Add/Edit Project Modal -->
+    <div class="modal-overlay" id="project-modal">
+        <div class="modal-content bg-glass">
+            <div class="modal-header">
+                <h2 id="modal-title">Yeni Su Animasyonu Projesi Ekle</h2>
+                <button class="btn-close" id="btn-close-project-modal">&times;</button>
+            </div>
+            <form id="project-form">
+                <input type="hidden" id="project-id">
+                <div class="form-group">
+                    <label for="p-name">Proje Adı</label>
+                    <input type="text" id="p-name" placeholder="Örn: Mall of Istanbul Müzikli Fıskiye Revizyonu" required>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="p-client">Müşteri Firma</label>
+                        <input type="text" id="p-client" placeholder="Örn: Torunlar GYO" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="p-location">Lokasyon</label>
+                        <input type="text" id="p-location" placeholder="Örn: Başakşehir, İstanbul" required>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="p-stage">Aşama</label>
+                        <select id="p-stage" required>
+                            <option value="design">Tasarım & 3D Modelleme</option>
+                            <option value="assembly">Mekanik Montaj</option>
+                            <option value="cabling">Elektrik / Kablolama</option>
+                            <option value="test">Test & Kalibrasyon</option>
+                            <option value="completed">Tamamlandı</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="p-budget">Proje Bütçesi (TRY)</label>
+                        <input type="number" id="p-budget" placeholder="Bütçe tutarını girin" required>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="p-progress">Proje İlerleme (%)</label>
+                        <input type="number" id="p-progress" min="0" max="100" placeholder="0 - 100" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="p-date">Başlangıç Tarihi</label>
+                        <input type="date" id="p-date" required>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-outline" id="btn-cancel-project-modal">Vazgeç</button>
+                    <button type="submit" class="btn btn-primary">Projeyi Kaydet</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Simulation Notification Toast -->
+    <div class="toast" id="toast-notif">
+        <div class="toast-body">
+            <span class="toast-indicator"></span>
+            <p id="toast-text">Sinyal gönderimi başarıyla başladı.</p>
+        </div>
+    </div>
+
+    <script src="index.js"></script>
+</body>
+</html>
