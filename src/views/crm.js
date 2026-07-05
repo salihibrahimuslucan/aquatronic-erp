@@ -4,6 +4,7 @@
 import {
     getCrm, getDealById, getDealActivities,
     normalizeStage, parseCrmDate, parseCrmMoney, isOverdue,
+    crmAddDeal, crmUpdateDeal, crmAddActivity,
 } from '../data/store.js';
 
 function esc(s) {
@@ -56,6 +57,158 @@ const TAB_DEFS = [
     { key: 'lost', label: 'Lost - Rejected' },
 ];
 
+// ------------------------------------------------------------ Form modalları
+
+function today() {
+    const d = new Date();
+    return `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()}`;
+}
+
+function selectOptions(list, selected) {
+    return ['<option value=""></option>', ...(list ?? []).map((v) =>
+        `<option value="${esc(v)}" ${v === selected ? 'selected' : ''}>${esc(v)}</option>`)].join('');
+}
+
+// Overlay modal iskeleti: kapatma (X / overlay / Esc) + submit hatasını inline gösterir.
+function openModal({ title, bodyHtml, submitLabel, onSubmit }) {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+        <div class="modal-panel bg-glass">
+            <div class="modal-head">
+                <h2>${esc(title)}</h2>
+                <button class="modal-close" title="Kapat">✕</button>
+            </div>
+            <form class="modal-form">${bodyHtml}
+                <p class="modal-error" hidden></p>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-outline modal-cancel">Vazgeç</button>
+                    <button type="submit" class="btn btn-primary">${esc(submitLabel)}</button>
+                </div>
+            </form>
+        </div>`;
+    document.body.appendChild(overlay);
+    const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', onKey);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    overlay.querySelector('.modal-close').addEventListener('click', close);
+    overlay.querySelector('.modal-cancel').addEventListener('click', close);
+
+    const form = overlay.querySelector('.modal-form');
+    const errEl = overlay.querySelector('.modal-error');
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = form.querySelector('button[type=submit]');
+        btn.disabled = true; btn.textContent = 'Kaydediliyor…'; errEl.hidden = true;
+        try {
+            await onSubmit(form, close);
+        } catch (err) {
+            errEl.textContent = err.message; errEl.hidden = false;
+            btn.disabled = false; btn.textContent = submitLabel;
+        }
+    });
+    return overlay;
+}
+
+// 16 kolonluk fırsat formu — ekleme ve düzenleme aynı iskelet.
+function dealFormHtml(d, lists, { lockId = false, withLog = false } = {}) {
+    const f = (label, key, attrs = '') => `
+        <div class="form-group"><label>${label}</label>
+            <input type="text" name="${key}" value="${esc(d[key] ?? '')}" ${attrs}></div>`;
+    return `
+        <div class="form-row-2">
+            ${f('ID *', 'id', lockId ? 'readonly class="mono locked"' : 'required placeholder="örn. DEMFT-1" class="mono"')}
+            ${f('Company *', 'company', 'required')}
+        </div>
+        ${f('Project', 'project')}
+        <div class="form-row-2">${f('Country', 'country')}${f('Contact', 'contact')}</div>
+        <div class="form-row-2">${f('Email', 'email', 'class="mono"')}${f('Product', 'product')}</div>
+        <div class="form-row-2">
+            <div class="form-group"><label>Owner</label>
+                <select name="owner">${selectOptions(lists.Owner, d.owner)}</select></div>
+            <div class="form-group"><label>Stage</label>
+                <select name="stage">${selectOptions(lists.Stage, normalizeStage(d.stage))}</select></div>
+        </div>
+        <div class="form-row-2">${f('Deal $', 'dealValue', 'class="mono"')}${f('Paid $', 'paidValue', 'class="mono"')}</div>
+        ${f('Shipping', 'shipping')}
+        <div class="form-row-2">
+            ${f('Last Contact', 'lastContact', 'placeholder="gg.aa.yyyy" class="mono"')}
+            ${f('Next Date', 'nextDate', 'placeholder="gg.aa.yyyy" class="mono"')}
+        </div>
+        <div class="form-group"><label>Next Action</label>
+            <select name="nextAction">${selectOptions(lists['Next Action'], d.nextAction)}</select></div>
+        <div class="form-group"><label>Latest <span class="hint">(punchline, ≤120 önerilir)</span></label>
+            <textarea name="latest" rows="2">${esc(d.latest ?? '')}</textarea></div>
+        ${withLog ? `<div class="form-group"><label>Açılış log kaydı <span class="hint">(opsiyonel — Activity Log'a da yazılır)</span></label>
+            <input type="text" name="logSummary"></div>` : ''}`;
+}
+
+function readForm(form) {
+    const out = {};
+    for (const el of form.querySelectorAll('input[name], select[name], textarea[name]')) {
+        out[el.name] = el.value.trim();
+    }
+    return out;
+}
+
+function openDealModal({ mode, deal = {}, lists, onDone }) {
+    const add = mode === 'add';
+    const overlay = openModal({
+        title: add ? 'Yeni Fırsat — Pipeline\'a eklenir' : `Fırsatı Düzenle — ${deal.id}`,
+        submitLabel: add ? 'Sheet\'e Ekle' : 'Sheet\'te Güncelle',
+        bodyHtml: dealFormHtml(add ? { lastContact: today() } : deal, lists,
+            { lockId: !add, withLog: add }),
+        async onSubmit(form, close) {
+            const d = readForm(form);
+            if (add) await crmAddDeal(d);
+            else await crmUpdateDeal(deal.id, d);
+            close(); onDone();
+        },
+    });
+    if (add) {
+        // Kolaylık: şirket yazılınca boş ID için sheet düzenine uygun öneri üret
+        const idEl = overlay.querySelector('input[name=id]');
+        overlay.querySelector('input[name=company]').addEventListener('blur', (e) => {
+            if (!idEl.value.trim() && e.target.value.trim()) {
+                idEl.value = `${e.target.value.replace(/[^A-Za-z]/g, '').slice(0, 5).toUpperCase()}-1`;
+            }
+        });
+    }
+}
+
+function openActivityModal({ deal, lists, onDone }) {
+    openModal({
+        title: `Aktivite Ekle — ${deal.id}`,
+        submitLabel: 'Log\'a Yaz',
+        bodyHtml: `
+            <div class="form-row-2">
+                <div class="form-group"><label>Date</label>
+                    <input type="text" name="date" value="${today()}" class="mono"></div>
+                <div class="form-group"><label>By</label>
+                    <select name="by">${selectOptions(lists.Owner, 'Salih')}</select></div>
+            </div>
+            <div class="form-row-2">
+                <div class="form-group"><label>Direction</label>
+                    <select name="direction">${selectOptions(lists.Direction?.length ? lists.Direction : ['Inbound', 'Outbound'], 'Outbound')}</select></div>
+                <div class="form-group"><label>Channel</label>
+                    <select name="channel">${selectOptions(lists.Channel?.length ? lists.Channel : ['Email', 'Phone', 'WhatsApp', 'Meeting'], 'Email')}</select></div>
+            </div>
+            <div class="form-group"><label>Summary *</label>
+                <textarea name="summary" rows="3" required></textarea></div>
+            ${deal.source === 'pipeline' ? `<label class="check-line">
+                <input type="checkbox" name="updateLatest" checked>
+                Pipeline satırında Latest + Last Contact'ı da güncelle</label>` : ''}`,
+        async onSubmit(form, close) {
+            const d = readForm(form);
+            d.dealId = deal.id;
+            d.updateLatest = form.querySelector('[name=updateLatest]')?.checked ?? false;
+            await crmAddActivity(d);
+            close(); onDone();
+        },
+    });
+}
+
 // ---------------------------------------------------------------- Pipeline
 
 export const crmPipelineView = {
@@ -99,6 +252,7 @@ export const crmPipelineView = {
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="search-icon"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
                         <input type="text" id="crm-search" placeholder="ID, şirket, proje veya kişi ara...">
                     </div>
+                    <button class="btn btn-primary" id="btn-new-deal" ${crm.live ? '' : 'disabled title="CRM yazma API\'si kapalı — python tools/crm_api.py çalıştır"'}>＋ Yeni Fırsat</button>
                 </div>
             </div>
 
@@ -123,7 +277,10 @@ export const crmPipelineView = {
                         <tbody id="crm-tbody"></tbody>
                     </table>
                 </div>
-                <p class="crm-footnote">Anlık görüntü: ${esc(crm.fetchedAt ?? '—')} · Canlı kaynak Google Sheets; Faz 1'de Supabase'e taşınacak.</p>
+                <p class="crm-footnote">
+                    <span class="live-dot ${crm.live ? 'on' : ''}"></span>
+                    ${crm.live ? `Canlı Google Sheet — ${esc(crm.fetchedAt)}` : `Salt-okur snapshot: ${esc(crm.fetchedAt ?? '—')} — yazma için: python tools/crm_api.py`}
+                </p>
             </div>`;
 
         const tbody = pane.querySelector('#crm-tbody');
@@ -180,6 +337,9 @@ export const crmPipelineView = {
         pane.querySelector('#crm-filter-owner').addEventListener('change', (e) => {
             state.owner = e.target.value; applyFilters();
         });
+        pane.querySelector('#btn-new-deal').addEventListener('click', () => {
+            openDealModal({ mode: 'add', lists: crm.lists, onDone: () => this.render(pane) });
+        });
 
         applyFilters();
     },
@@ -200,6 +360,7 @@ export const crmDealView = {
     subtitle: 'Fırsat kartı + aktivite timeline\'ı (Sheets Deal View aynası).',
 
     async render(pane, params) {
+        const crm = await getCrm();
         const deal = await getDealById(params.id);
         if (!deal) {
             pane.innerHTML = `<div class="grid-card bg-glass"><p class="empty-row">Deal bulunamadı: ${esc(params.id)}</p>
@@ -208,6 +369,7 @@ export const crmDealView = {
         }
         const activities = await getDealActivities(deal.id);
         const sourceLabel = { pipeline: 'Pipeline', completed: 'Completed (arşiv)', lost: 'Lost - Rejected (arşiv)' }[deal.source];
+        const writeOff = crm.live ? '' : 'disabled title="CRM yazma API\'si kapalı — python tools/crm_api.py çalıştır"';
 
         pane.innerHTML = `
             <div class="detail-actions">
@@ -216,6 +378,10 @@ export const crmDealView = {
                     Pipeline'a Dön
                 </button>
                 <span class="badge badge-muted">${esc(sourceLabel)}</span>
+                <span class="detail-actions-right">
+                    ${deal.source === 'pipeline' ? `<button class="btn btn-outline" id="btn-edit-deal" ${writeOff}>✎ Düzenle</button>` : ''}
+                    <button class="btn btn-primary" id="btn-add-activity" ${writeOff}>＋ Aktivite Ekle</button>
+                </span>
             </div>
 
             <div class="detail-layout">
@@ -265,6 +431,14 @@ export const crmDealView = {
                     </div>
                 </div>
             </div>`;
+
+        const rerender = () => this.render(pane, params);
+        pane.querySelector('#btn-edit-deal')?.addEventListener('click', () => {
+            openDealModal({ mode: 'edit', deal, lists: crm.lists, onDone: rerender });
+        });
+        pane.querySelector('#btn-add-activity').addEventListener('click', () => {
+            openActivityModal({ deal, lists: crm.lists, onDone: rerender });
+        });
     },
 };
 
