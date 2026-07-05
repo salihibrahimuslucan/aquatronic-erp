@@ -1,0 +1,86 @@
+[
+ {
+  "key": "pcbcomp",
+  "label": "PCB Bilesenleri",
+  "hidden": false,
+  "count": 220
+ },
+ {
+  "key": "vario",
+  "label": "Vario Motorlar",
+  "hidden": false,
+  "count": 48
+ },
+ {
+  "key": "powerbox",
+  "label": "PowerBox",
+  "hidden": false,
+  "count": 42
+ },
+ {
+  "key": "lighting",
+  "label": "Aydinlatma",
+  "hidden": false,
+  "count": 37
+ },
+ {
+  "key": "pcbcard",
+  "label": "PCB Kartlari",
+  "hidden": false,
+  "count": 30
+ },
+ {
+  "key": "xhsocket",
+  "label": "XH Soket",
+  "hidden": false,
+  "count": 28
+ },
+ {
+  "key": "box",
+  "label": "Kutular",
+  "hidden": false,
+  "count": 27
+ },
+ {
+  "key": "finished",
+  "label": "Bitmis Urunler",
+  "hidden": false,
+  "count": 26
+ },
+ {
+  "key": "cable",
+  "label": "Kablolar",
+  "hidden": false,
+  "count": 26
+ },
+ {
+  "key": "pano",
+  "label": "Pano Malzemeleri",
+  "hidden": false,
+  "count": 17
+ },
+ {
+  "key": "nozzle",
+  "label": "Nozullar",
+  "hidden": false,
+  "count": 15
+ },
+ {
+  "key": "chemical",
+  "label": "Kimyasallar",
+  "hidden": false,
+  "count": 13
+ },
+ {
+  "key": "switch",
+  "label": "Switch",
+  "hidden": false,
+  "count": 7
+ },
+ {
+  "key": "motor",
+  "label": "Motorlar",
+  "hidden": false,
+  "count": 6
+ }
+]

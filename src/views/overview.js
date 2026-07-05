@@ -1,93 +1,57 @@
-import {
-    getKpis, getCriticalItems, getMoves, getWeeklyMoveTotals, formatMoney,
-} from '../data/store.js';
+// Genel Bakış — 4 KPI + kritik stok tablosu (v2 kalıbı; chart YOK, sade).
+import { getKpis, getCriticalItems, getTabs, stockStatus, stockStatusLabel } from '../data/store.js';
+import { photoUrl, iconForFamily, statusPillClass, esc } from './helpers.js';
 
-let chart;
+const MAX_CRITICAL_ROWS = 14;
 
 export const overviewView = {
-    id: 'genel',
     title: 'Genel Bakış',
-    headerAction: null,
+    subtitle: 'Aquatronic üretim, stok ve teklif kontrol arayüzü.',
 
-    async render(root) {
-        const [kpis, critical, moves, weekly] = await Promise.all([
-            getKpis(), getCriticalItems(), getMoves(), getWeeklyMoveTotals(),
-        ]);
+    async render(pane) {
+        const [kpis, critical, tabs] = await Promise.all([getKpis(), getCriticalItems(), getTabs()]);
+        const tabLabel = Object.fromEntries(tabs.map((t) => [t.key, t.label]));
 
-        root.innerHTML = `
-            <div class="welcome-banner">
-                <div class="welcome-text">
-                    <h1>Hoş geldin, Salih</h1>
-                    <p>Stok, üretim ve satış hattının güncel durumu.</p>
-                </div>
-                <div class="live-clock" id="live-clock">--:--:--</div>
-            </div>
-
+        pane.innerHTML = `
             <div class="kpi-grid">
                 <div class="kpi-card bg-glass">
                     <div class="kpi-icon icon-cyan">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
                     </div>
                     <div class="kpi-info">
-                        <h3>Stok Kalemi</h3>
+                        <h3>Toplam Ürün Çeşidi</h3>
                         <p class="kpi-value mono">${kpis.totalItems}</p>
-                        <span class="kpi-trend dynamic">Aktif takipte</span>
+                        <span class="kpi-sub">Kayıtlı stok kalemi</span>
+                    </div>
+                </div>
+                <div class="kpi-card bg-glass">
+                    <div class="kpi-icon icon-pink">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                    </div>
+                    <div class="kpi-info">
+                        <h3>Kritik Stok Seviyesi</h3>
+                        <p class="kpi-value mono text-pink">${kpis.criticalCount}</p>
+                        <span class="kpi-sub text-pink">Limit altındaki kalemler</span>
                     </div>
                 </div>
                 <div class="kpi-card bg-glass">
                     <div class="kpi-icon icon-purple">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
                     </div>
                     <div class="kpi-info">
-                        <h3>Kritik Seviyede</h3>
-                        <p class="kpi-value mono">${kpis.criticalCount}</p>
-                        <span class="kpi-trend negative">Sipariş gerektiriyor</span>
-                    </div>
-                </div>
-                <div class="kpi-card bg-glass">
-                    <div class="kpi-icon icon-blue">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v4M12 19v4M4.2 4.2l2.9 2.9M16.9 16.9l2.9 2.9M1 12h4M19 12h4M4.2 19.8l2.9-2.9M16.9 7.1l2.9-2.9"></path></svg>
-                    </div>
-                    <div class="kpi-info">
-                        <h3>Açık Üretim Emri</h3>
+                        <h3>Aktif Üretim Emri</h3>
                         <p class="kpi-value mono">${kpis.openOrderCount}</p>
-                        <span class="kpi-trend dynamic">Planlı + üretimde + testte</span>
+                        <span class="kpi-sub">Planlı + üretimde + testte</span>
                     </div>
                 </div>
                 <div class="kpi-card bg-glass">
                     <div class="kpi-icon icon-green">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg>
                     </div>
                     <div class="kpi-info">
-                        <h3>Açık Fırsat (CRM)</h3>
-                        <p class="kpi-value mono">${kpis.openDealCount}</p>
-                        <span class="kpi-trend positive">${formatMoney(kpis.pipelineValue)} pipeline</span>
-                    </div>
-                </div>
-            </div>
-
-            <div class="dashboard-grid">
-                <div class="grid-card bg-glass col-span-2">
-                    <div class="card-header">
-                        <h2>Stok Hareketleri</h2>
-                        <span class="card-subtitle">Son 4 hafta — giriş / çıkış toplamları</span>
-                    </div>
-                    <div class="chart-container"><canvas id="moves-chart"></canvas></div>
-                </div>
-                <div class="grid-card bg-glass">
-                    <div class="card-header">
-                        <h2>Kritik Stok</h2>
-                        <span class="card-subtitle">Kritik seviyenin altındaki kalemler</span>
-                    </div>
-                    <div class="critical-list">
-                        ${critical.slice(0, 6).map((i) => `
-                            <div class="critical-row">
-                                <div>
-                                    <span class="name">${i.name}</span>
-                                    <span class="code">${i.code}</span>
-                                </div>
-                                <span class="qty">${i.qty} <span>/ krt ${i.critical}</span></span>
-                            </div>`).join('')}
+                        <h3>Açık Satış Fırsatı</h3>
+                        <p class="kpi-value mono">${kpis.openOpportunityCount ?? '—'}</p>
+                        <span class="kpi-sub">CRM modülünde takipte</span>
                     </div>
                 </div>
             </div>
@@ -95,83 +59,53 @@ export const overviewView = {
             <div class="grid-card bg-glass margin-top-lg">
                 <div class="card-header flex-row">
                     <div>
-                        <h2>Son Hareketler</h2>
-                        <p class="card-subtitle">Hareket defterinin son kayıtları</p>
+                        <h2>⚠️ Kritik Stok Alarmı Veren Ürünler</h2>
+                        <p class="card-subtitle">Mevcut miktarı kritik asgari seviyenin altına düşen kalemler (en kötüden başlayarak ilk ${MAX_CRITICAL_ROWS}).</p>
                     </div>
-                    <button class="btn btn-outline" data-goto="stok">Deftere Git</button>
+                    <button class="btn btn-outline" data-goto="stok">Tüm Envanteri Gör</button>
                 </div>
                 <div class="table-container">
                     <table>
                         <thead>
-                            <tr><th>Tarih</th><th>Ürün</th><th>Tip</th><th>Adet</th><th>Referans</th><th>Not</th></tr>
+                            <tr>
+                                <th>Ürün Resmi</th>
+                                <th>Ürün Adı</th>
+                                <th>Ürün Ailesi</th>
+                                <th>Mevcut Adet</th>
+                                <th>Kritik Limit</th>
+                                <th>Stok Durumu</th>
+                                <th>Notlar</th>
+                            </tr>
                         </thead>
                         <tbody>
-                            ${moves.slice(0, 8).map((m) => `
-                                <tr>
-                                    <td class="mono">${m.date}</td>
-                                    <td>${m.name}</td>
-                                    <td class="${m.type === 'giris' ? 'move-in' : 'move-out'}">${m.type === 'giris' ? '▲ Giriş' : '▼ Çıkış'}</td>
-                                    <td class="mono">${m.qty}</td>
-                                    <td class="mono">${m.ref}</td>
-                                    <td>${m.note}</td>
-                                </tr>`).join('')}
+                            ${critical.length === 0
+                                ? '<tr><td colspan="7" style="text-align:center;color:var(--text-muted)">Kritik seviye altına düşen ürün yok.</td></tr>'
+                                : critical.slice(0, MAX_CRITICAL_ROWS).map((p) => {
+                                    const st = stockStatus(p);
+                                    const url = photoUrl(p);
+                                    return `
+                                    <tr data-item-id="${p.id}" style="cursor:pointer">
+                                        <td class="table-thumbnail-cell">
+                                            ${url
+                                                ? `<img src="${esc(url)}" class="table-thumb" alt="${esc(p.name)}" loading="lazy">`
+                                                : `<span class="table-placeholder-ico">${iconForFamily(p.family)}</span>`}
+                                        </td>
+                                        <td style="font-weight:600;color:#fff">${esc(p.name)}</td>
+                                        <td class="mono" style="font-size:0.75rem">${esc(tabLabel[p.family] ?? p.family)}</td>
+                                        <td class="table-qty-val text-pink">${p.qty}</td>
+                                        <td class="table-qty-val" style="color:var(--text-secondary)">${p.critical}</td>
+                                        <td><span class="card-stock-status-pill ${statusPillClass(st)}" style="position:static">${stockStatusLabel(st)}</span></td>
+                                        <td style="color:var(--text-secondary);font-size:0.75rem;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.note || '—')}</td>
+                                    </tr>`;
+                                }).join('')}
                         </tbody>
                     </table>
                 </div>
             </div>`;
 
-        this.startClock(root);
-        this.drawChart(weekly);
-    },
-
-    startClock(root) {
-        const el = root.querySelector('#live-clock');
-        const tick = () => {
-            if (!el.isConnected) { clearInterval(timer); return; }
-            el.textContent = new Date().toLocaleTimeString('tr-TR');
-        };
-        const timer = setInterval(tick, 1000);
-        tick();
-    },
-
-    drawChart(weekly) {
-        if (chart) { chart.destroy(); chart = null; }
-        const ctx = document.getElementById('moves-chart');
-        if (!ctx || typeof Chart === 'undefined') return;
-        chart = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: weekly.map((w) => w.label),
-                datasets: [
-                    {
-                        label: 'Giriş',
-                        data: weekly.map((w) => w.giris),
-                        backgroundColor: 'rgba(0, 245, 212, 0.55)',
-                        borderColor: '#00f5d4',
-                        borderWidth: 1,
-                        borderRadius: 6,
-                    },
-                    {
-                        label: 'Çıkış',
-                        data: weekly.map((w) => w.cikis),
-                        backgroundColor: 'rgba(247, 37, 133, 0.45)',
-                        borderColor: '#f72585',
-                        borderWidth: 1,
-                        borderRadius: 6,
-                    },
-                ],
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { labels: { color: '#94a3b8', font: { family: 'Outfit' } } },
-                },
-                scales: {
-                    x: { ticks: { color: '#64748b' }, grid: { color: 'rgba(255,255,255,0.04)' } },
-                    y: { ticks: { color: '#64748b' }, grid: { color: 'rgba(255,255,255,0.04)' } },
-                },
-            },
+        // Satıra tıkla -> ürün detayı
+        pane.querySelectorAll('tr[data-item-id]').forEach((tr) => {
+            tr.addEventListener('click', () => { location.hash = `#/stok/urun/${tr.dataset.itemId}`; });
         });
     },
 };
