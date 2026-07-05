@@ -265,6 +265,7 @@ body {
 .main-content {
     margin-left: var(--sidebar-width);
     flex-grow: 1;
+    min-width: 0; /* flex çocuğu: geniş tablo viewport'u genişletmesin */
     min-height: 100vh;
     padding: 30px;
     display: flex;
@@ -564,6 +565,7 @@ body {
 
 .grid-card {
     padding: 24px;
+    min-width: 0; /* grid çocuğu: iç tablo kart genişliğini kilitlemesin */
 }
 
 .card-header {
