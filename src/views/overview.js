@@ -1,5 +1,5 @@
 // Genel Bakış — 4 KPI + kritik stok tablosu (v2 kalıbı; chart YOK, sade).
-import { getKpis, getCriticalItems, stockStatus, stockStatusLabel } from '../data/store.js';
+import { getKpis, getCriticalItems, getMissingPhotoItems, stockStatus, stockStatusLabel } from '../data/store.js';
 import { WITH_SALES, getOpenOpportunityCount } from '@sales';
 import { photoUrl, iconForFamily, statusPillClass, esc } from './helpers.js';
 
@@ -14,8 +14,8 @@ export const overviewView = {
     subtitle: 'Aquatronic üretim, stok ve teklif kontrol arayüzü.',
 
     async render(pane) {
-        const [kpis, critical, openOpps] = await Promise.all([
-            getKpis(), getCriticalItems(),
+        const [kpis, critical, missingPhotos, openOpps] = await Promise.all([
+            getKpis(), getCriticalItems(), getMissingPhotoItems(),
             WITH_SALES ? getOpenOpportunityCount() : Promise.resolve(null),
         ]);
 
@@ -76,6 +76,17 @@ export const overviewView = {
                 </div>
                 ${fourthKpi}
             </div>
+
+            ${missingPhotos.length ? `
+            <div class="grid-card bg-glass margin-top-lg">
+                <div class="card-header flex-row" style="margin-bottom:0">
+                    <div>
+                        <h2>📷 Çekilecek Foto <span class="count-chip">${missingPhotos.length}</span></h2>
+                        <p class="card-subtitle">Bitmiş ürünlerden ${missingPhotos.length} tanesinin fotoğrafı yok — çekim listesi hazır.</p>
+                    </div>
+                    <button class="btn btn-outline" data-goto="foto-eksik">Listeyi Gör</button>
+                </div>
+            </div>` : ''}
 
             <div class="grid-card bg-glass margin-top-lg">
                 <div class="card-header flex-row">

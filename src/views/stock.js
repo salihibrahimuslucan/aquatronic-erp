@@ -331,6 +331,7 @@ export const stockDetailView = {
                                     <div class="form-group"><label>Ağırlık (kg)</label><input type="text" id="e-weight" value="${p.weight ?? ''}"></div>
                                 </div>
                                 <div class="form-group"><label>Not</label><input type="text" id="e-note" value="${esc(p.note)}"></div>
+                                <div class="form-group"><label>Foto dosya adı (public/foto altında)</label><input type="text" id="e-photo" value="${esc((p.photo || '').replace(/^foto\//, ''))}" placeholder="ör. 99.jpg — boş = foto yok"></div>
                                 <div class="meta-mini">Kod/ID: #${p.id} · Arama etiketi: ${esc(p.tr || '—')}</div>
                                 <div class="toolbar-actions">
                                     <button class="btn btn-primary" id="btn-save">Bilgileri Kaydet</button>
@@ -414,6 +415,7 @@ export const stockDetailView = {
                     boxQty: pane.querySelector('#e-box').value,
                     weight: pane.querySelector('#e-weight').value,
                     note: pane.querySelector('#e-note').value,
+                    photo: pane.querySelector('#e-photo').value,
                 });
                 showToast('Kaydedildi.'); draw();
             });

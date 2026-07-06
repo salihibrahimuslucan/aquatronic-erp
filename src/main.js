@@ -3,6 +3,7 @@ import { stockGroupView, stockDetailView } from './views/stock.js';
 import { activeView, plannedView, poolView } from './views/operations.js';
 import { outsourceView } from './views/outsource.js';
 import { ledgerView } from './views/ledger.js';
+import { missingPhotoView } from './views/photos.js';
 import { WITH_SALES, crmPipelineView, crmDealView, crmLogView, salesNavHtml } from '@sales';
 import { getOpGroups, getGroup, getKpis } from './data/store.js';
 
@@ -70,6 +71,7 @@ function resolve(seg) {
     }
     if (seg[0] === 'stok' && seg[1] === 'urun' && seg[2]) return { view: stockDetailView, params: { id: seg[2] }, navKey: null };
     if (seg[0] === 'defter') return { view: ledgerView, params: {}, navKey: 'defter' };
+    if (seg[0] === 'foto-eksik') return { view: missingPhotoView, params: {}, navKey: 'genel' };
     if (WITH_SALES && seg[0] === 'crm' && seg[1] === 'deal' && seg[2]) return { view: crmDealView, params: { id: seg[2] }, navKey: 'crm' };
     if (WITH_SALES && seg[0] === 'crm' && seg[1] === 'log') return { view: crmLogView, params: {}, navKey: 'crm/log' };
     if (WITH_SALES && seg[0] === 'crm') return { view: crmPipelineView, params: {}, navKey: 'crm' };

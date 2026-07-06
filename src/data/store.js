@@ -219,6 +219,10 @@ export async function saveProduct(id, patch) {
     if (patch.note !== undefined) p.note = patch.note;
     if (patch.weight !== undefined) p.weight = patch.weight === '' ? null : parseFloat(patch.weight);
     if (patch.boxQty !== undefined) p.boxQty = patch.boxQty === '' ? null : parseInt(patch.boxQty, 10);
+    if (patch.photo !== undefined) {
+        const name = String(patch.photo ?? '').trim().replace(/^\/+/, '').replace(/^foto\//i, '');
+        p.photo = name ? `foto/${name}` : null;
+    }
     logActivity('product-edit', p.name, oldQty !== p.qty ? `stok ${oldQty} → ${p.qty}` : 'bilgi güncellendi');
     persist();
     return p;
@@ -409,6 +413,12 @@ export async function getKpis() {
         outsourceCount: state.dis.length,
     };
 }
+// Fotoğrafı olmayan bitmiş ürünler — Faz 0 çekim listesi (Salih sırayla çekecek)
+export async function getMissingPhotoItems() {
+    ensureState();
+    return state.items.filter((i) => i.family === 'finished' && !i.photo && !i.archived);
+}
+
 export async function getCriticalItems() {
     ensureState();
     return state.items
