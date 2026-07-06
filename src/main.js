@@ -5,7 +5,17 @@ import { outsourceView } from './views/outsource.js';
 import { ledgerView } from './views/ledger.js';
 import { missingPhotoView } from './views/photos.js';
 import { WITH_SALES, crmPipelineView, crmDealView, crmLogView, salesNavHtml } from '@sales';
-import { getOpGroups, getGroup, getKpis } from './data/store.js';
+import { getOpGroups, getGroup, setCurrentUser } from './data/store.js';
+import { isCloud, getProfile, signIn, signOut } from './data/supabase.js';
+
+// Girişli kullanıcı profili (bulut modu) — satış menüsü rol'e de bakar:
+// üretim rolü tam pakette bile CRM görmez (derinlemesine savunma; asıl duvar
+// build:uretim + Supabase RLS).
+let userProfile = null;
+const ROLE_LABEL = { yonetici: 'Yönetici', uretim: 'Üretim', satis: 'Satış' };
+function salesAllowed() {
+    return WITH_SALES && (!userProfile || userProfile.role !== 'uretim');
+}
 
 // ─── Menü ikonları (SVG line) ──────────────────────────────────────────────
 const ICON = {
@@ -39,7 +49,7 @@ function buildNav() {
         `<a href="#/defter" class="nav-item" data-nav="defter">${svg('defter')}<span>Hareket Defteri</span></a>`,
     ].join('');
 
-    const salesLinks = salesNavHtml(svg);
+    const salesLinks = salesAllowed() ? salesNavHtml(svg) : '';
 
     document.getElementById('nav-menu').innerHTML = `
         <div class="nav-separator">Operasyon</div>
@@ -72,9 +82,9 @@ function resolve(seg) {
     if (seg[0] === 'stok' && seg[1] === 'urun' && seg[2]) return { view: stockDetailView, params: { id: seg[2] }, navKey: null };
     if (seg[0] === 'defter') return { view: ledgerView, params: {}, navKey: 'defter' };
     if (seg[0] === 'foto-eksik') return { view: missingPhotoView, params: {}, navKey: 'genel' };
-    if (WITH_SALES && seg[0] === 'crm' && seg[1] === 'deal' && seg[2]) return { view: crmDealView, params: { id: seg[2] }, navKey: 'crm' };
-    if (WITH_SALES && seg[0] === 'crm' && seg[1] === 'log') return { view: crmLogView, params: {}, navKey: 'crm/log' };
-    if (WITH_SALES && seg[0] === 'crm') return { view: crmPipelineView, params: {}, navKey: 'crm' };
+    if (salesAllowed() && seg[0] === 'crm' && seg[1] === 'deal' && seg[2]) return { view: crmDealView, params: { id: seg[2] }, navKey: 'crm' };
+    if (salesAllowed() && seg[0] === 'crm' && seg[1] === 'log') return { view: crmLogView, params: {}, navKey: 'crm/log' };
+    if (salesAllowed() && seg[0] === 'crm') return { view: crmPipelineView, params: {}, navKey: 'crm' };
     return { view: overviewView, params: {}, navKey: 'genel' };
 }
 
@@ -113,7 +123,53 @@ function initClock() {
     setInterval(tick, 1000);
 }
 
-buildNav();
-window.addEventListener('hashchange', renderCurrent);
-initClock();
-renderCurrent();
+// ─── Giriş (bulut modu) ────────────────────────────────────────────────────
+function showLogin() {
+    const overlay = document.getElementById('login-overlay');
+    const errEl = document.getElementById('login-error');
+    overlay.hidden = false;
+    return new Promise((resolve) => {
+        const tryLogin = async () => {
+            errEl.hidden = true;
+            const email = document.getElementById('login-email').value.trim();
+            const pass = document.getElementById('login-pass').value;
+            if (!email || !pass) return;
+            try {
+                const profile = await signIn(email, pass);
+                overlay.hidden = true;
+                resolve(profile);
+            } catch (e) {
+                errEl.textContent = /invalid/i.test(e.message)
+                    ? 'E-posta ya da şifre hatalı.' : `Giriş başarısız: ${e.message}`;
+                errEl.hidden = false;
+            }
+        };
+        document.getElementById('login-go').addEventListener('click', tryLogin);
+        overlay.addEventListener('keydown', (e) => { if (e.key === 'Enter') tryLogin(); });
+    });
+}
+
+function renderUserFooter() {
+    if (!userProfile) return;
+    const name = userProfile.full_name || 'Kullanıcı';
+    document.getElementById('user-avatar').textContent = name.charAt(0).toUpperCase();
+    document.getElementById('user-name').textContent = name;
+    document.getElementById('user-role').textContent = ROLE_LABEL[userProfile.role] ?? userProfile.role;
+    const btn = document.getElementById('btn-logout');
+    btn.hidden = false;
+    btn.addEventListener('click', async () => { await signOut(); location.reload(); });
+}
+
+async function boot() {
+    if (isCloud()) {
+        userProfile = await getProfile().catch(() => null);
+        if (!userProfile) userProfile = await showLogin();
+        setCurrentUser(userProfile.full_name);
+        renderUserFooter();
+    }
+    buildNav();
+    window.addEventListener('hashchange', renderCurrent);
+    initClock();
+    renderCurrent();
+}
+boot();

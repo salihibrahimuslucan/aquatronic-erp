@@ -29,11 +29,12 @@
 
             <div class="sidebar-footer">
                 <div class="user-profile-simple">
-                    <div class="user-avatar">S</div>
+                    <div class="user-avatar" id="user-avatar">S</div>
                     <div class="user-text">
-                        <h4>Salih</h4>
-                        <span>Yönetici</span>
+                        <h4 id="user-name">Salih</h4>
+                        <span id="user-role">Yönetici</span>
                     </div>
+                    <button class="btn-logout" id="btn-logout" title="Çıkış yap" hidden>⏻</button>
                 </div>
             </div>
         </aside>
@@ -51,6 +52,18 @@
 
             <div class="viewport" id="view-root"></div>
         </main>
+    </div>
+
+    <div class="login-overlay" id="login-overlay" hidden>
+        <div class="login-card bg-glass">
+            <img src="./aquatronic-logo.png" alt="Aquatronic" class="login-logo">
+            <h2>AQUATRONIC <span>ERP</span></h2>
+            <p class="login-sub">Devam etmek için giriş yapın</p>
+            <input type="email" id="login-email" placeholder="E-posta" autocomplete="username">
+            <input type="password" id="login-pass" placeholder="Şifre" autocomplete="current-password">
+            <button class="btn btn-primary" id="login-go">Giriş Yap</button>
+            <p class="login-error" id="login-error" hidden></p>
+        </div>
     </div>
 
     <div class="toast" id="toast-notif">

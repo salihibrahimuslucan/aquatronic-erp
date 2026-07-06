@@ -1,13 +1,16 @@
 // Veri erişim + iş mantığı katmanı — TEK giriş noktası.
-// Faz 1'de bu modülün İÇİ Supabase istemcisine döner; görünümler yalnızca
-// buradaki async API'yi kullanır, kaynağı bilmez.
+// FAZ 1: Supabase yapılandırılmışsa (VITE_SUPABASE_*) veri buluttan yüklenir,
+// her mutasyon buluta yazılır (write-through) ve bellek kopyası güncellenir;
+// görünümler yalnızca buradaki async API'yi kullanır, kaynağı bilmez.
+// Yapılandırma yoksa eski davranış aynen sürer: JSON tohum + localStorage.
 //
-// KALICILIK (bu faz): tarayıcı localStorage. İlk yüklemede JSON tohumları
-// (items/ops/outsource/crm-snapshot) okunur; her mutasyon localStorage'a yazılır.
-// Netlify uygulamasının npoint+localStorage modelinin yerel eşdeğeri.
+// Bulut modeli: stock_moves = hakikat defteri (apply_stock_move RPC atomik),
+// üretim tamamlama = complete_production_order RPC (üret + BOM tüket tek işlem).
 //
 // Menü yapısı = netlify BASE_NAV_GROUPS (aquatronic-v7.html) — Salih onaylı:
 //   active · planned · finished · production(alt) · cable&socket(alt) · pano/psu · motor · dış · pool
+
+import { supabase, isCloud, unwrap } from './supabase.js';
 
 // DİKKAT: CRM verisi/kodu BU DOSYADA DEĞİL — src/data/crm-store.js'te.
 // build:uretim paketi crm-store'u hiç import etmez (satış verisi sızmaz).
@@ -82,9 +85,34 @@ function normalizeItem(raw, idx) {
     };
 }
 
-// ─── Durum (localStorage kalıcılık) ────────────────────────────────────────
+// Bulut satırı (snake_case) → uygulama ürün şekli
+function rowToItem(r) {
+    return {
+        id: r.id, name: r.name, family: r.family, cat: r.cat ?? '',
+        qty: Number(r.qty) || 0, critical: Number(r.critical) || 0,
+        note: r.note ?? '', photo: r.photo || null,
+        boxQty: r.box_qty ?? null, weight: r.weight === null ? null : Number(r.weight),
+        tr: r.tr ?? r.name, history: [], components: null,
+        bom: [], archived: !!r.archived,
+    };
+}
+
+// stock_moves satırı → ürün history girdisi (görünümler in/out bekler)
+function moveToHistory(m) {
+    const dirIn = m.move_type === 'in' || m.move_type === 'produce'
+        || (m.move_type === 'count' && m.qty >= 0);
+    return {
+        type: dirIn ? 'in' : 'out', qty: Math.abs(m.qty),
+        date: new Date(m.created_at).toLocaleDateString('tr-TR'),
+        note: m.note ?? '', ts: new Date(m.created_at).getTime(), user: m.user_name ?? '',
+    };
+}
+
+// ─── Durum (bulut write-through önbelleği / localStorage kalıcılık) ────────
 const LS_KEY = 'aq_erp_state_v1';
+const CLOUD_TTL_MS = 15_000;     // gezinmede başkalarının değişikliği bu aralıkla tazelenir
 let state = null;
+let _loadedAt = 0;
 
 function seed() {
     return {
@@ -98,7 +126,7 @@ function seed() {
     };
 }
 
-// Şema yükseltme: eski localStorage kayıtlarında bom/archived yok; ekle ve
+// Şema yükseltme (yalnız lokal mod): eski kayıtlarda bom/archived yok; ekle ve
 // BOŞ reçeteleri bom-seed'den doldur (kullanıcı girdisi asla ezilmez).
 function migrate(st) {
     if (!st || !Array.isArray(st.items)) return st;
@@ -112,7 +140,62 @@ function migrate(st) {
     return st;
 }
 
-function ensureState() {
+async function loadCloudState() {
+    const [items, boms, moves, orders, pool, dis, log] = await Promise.all([
+        supabase.from('items').select('*').order('id').then(unwrap),
+        supabase.from('boms').select('*').then(unwrap),
+        supabase.from('stock_moves').select('*').order('created_at', { ascending: false }).limit(600).then(unwrap),
+        supabase.from('production_orders').select('*').order('created_at', { ascending: false }).then(unwrap),
+        supabase.from('pool_tests').select('*').order('id').then(unwrap),
+        supabase.from('outsource_jobs').select('*').order('id').then(unwrap),
+        supabase.from('activity_log').select('*').order('created_at', { ascending: false }).limit(500).then(unwrap),
+    ]);
+    const byId = new Map();
+    const st = {
+        items: items.map((r) => { const it = rowToItem(r); byId.set(String(it.id), it); return it; }),
+        pool: pool.map((p) => ({
+            id: p.id, device: p.device, sn: p.sn, desc: p.desc, status: p.status,
+            address: p.address, currentIdle: p.current_idle, currentRun: p.current_run,
+            height: p.height, startDate: p.start_date, endDate: p.end_date, notes: p.notes,
+        })),
+        dis: dis.map((o) => ({
+            id: o.id, item: o.item, qty: o.qty, status: o.status, reqDate: o.req_date,
+            givenMat: o.given_mat, receivedQty: o.received_qty, receivedDate: o.received_date,
+            price: o.price, note: o.note,
+        })),
+        activeRuns: orders.filter((o) => o.status === 'active').map((o) => ({
+            id: o.id, name: o.product_name, qty: o.qty, note: o.note,
+            startedAt: o.started_at ? new Date(o.started_at).getTime() : null, user: o.user_name,
+        })),
+        plans: orders.filter((o) => o.status === 'planned').map((o) => ({
+            id: o.id, name: o.product_name, cat: o.cat ?? '', note: o.note,
+            createdAt: new Date(o.created_at).getTime(), user: o.user_name,
+        })),
+        productionArchive: orders.filter((o) => o.status === 'done').map((o) => ({
+            id: o.id, name: o.product_name, qty: o.qty, note: o.note,
+            completedAt: o.completed_at ? new Date(o.completed_at).getTime() : null, user: o.user_name,
+        })),
+        activityLog: log.map((a) => ({
+            ts: new Date(a.created_at).getTime(), user: a.user_name,
+            action: a.action, target: a.target, details: a.details,
+        })),
+    };
+    for (const b of boms) {
+        byId.get(String(b.product_id))?.bom.push({ itemId: b.component_id, qty: b.qty });
+    }
+    for (const m of moves) {
+        byId.get(String(m.item_id))?.history.push(moveToHistory(m));
+    }
+    return st;
+}
+
+async function ensureState() {
+    if (isCloud()) {
+        if (state && (Date.now() - _loadedAt) < CLOUD_TTL_MS) return state;
+        state = await loadCloudState();
+        _loadedAt = Date.now();
+        return state;
+    }
     if (state) return state;
     try {
         const raw = localStorage.getItem(LS_KEY);
@@ -123,11 +206,17 @@ function ensureState() {
     return state;
 }
 
+// Bulutta mutasyon sonrası önbelleği canlı tut (tam yeniden yükleme gerektiren
+// işlemler invalidate() çağırır — bir sonraki ekran taze veri çeker).
+function invalidate() { _loadedAt = 0; }
+
 function persist() {
+    if (isCloud()) return;   // bulutta her mutasyon kendini yazar
     try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch { /* kota dolabilir; sessiz geç */ }
 }
 
 export function resetToSeed() {
+    if (isCloud()) { invalidate(); return; }
     state = migrate(seed());
     persist();
 }
@@ -139,11 +228,17 @@ export function getCurrentUser() { return _currentUser; }
 function nowTs() { return Date.now(); }
 function trDate() { return new Date().toLocaleDateString('tr-TR'); }
 
-// Global aktivite günlüğü (netlify logActivity karşılığı)
+// Global aktivite günlüğü (netlify logActivity karşılığı) — bulutta ayrıca
+// activity_log tablosuna yazar (beklenmez; hata sessizce loglanır).
 export function logActivity(action, target, details) {
-    ensureState();
+    if (!state) return;
     state.activityLog.unshift({ ts: nowTs(), user: _currentUser, action, target, details: details ?? '' });
     if (state.activityLog.length > 2000) state.activityLog.length = 2000;
+    if (isCloud()) {
+        supabase.from('activity_log')
+            .insert({ user_name: _currentUser, action, target, details: details ?? '' })
+            .then(({ error }) => { if (error) console.error('activity_log:', error.message); });
+    }
 }
 
 // ─── Ürünler ───────────────────────────────────────────────────────────────
@@ -158,18 +253,17 @@ export function stockStatusLabel(status) {
 
 // Varsayılan: arşivdekiler hariç (katalog/seçim listeleri için doğru olan bu).
 export async function getItems(includeArchived = false) {
-    ensureState();
+    await ensureState();
     return includeArchived ? state.items : state.items.filter((i) => !i.archived);
 }
 
 export async function getItemById(id) {
-    ensureState();
+    await ensureState();
     return state.items.find((i) => i.id === Number(id) || String(i.id) === String(id)) ?? null;
 }
 
 // Bir alt-sekme match'ine göre ürünleri süz (archived=true → yalnız arşiv)
 function matchItems(match, archived = false) {
-    ensureState();
     if (!match) return [];
     return state.items.filter((i) => {
         if (!!i.archived !== archived) return false;
@@ -181,10 +275,25 @@ function matchItems(match, archived = false) {
 
 // Bir stok-grubunun (finished/production/cable/pano/motor) tüm alt-sekmeleri + sayıları
 export async function getStockGroup(groupId, archived = false) {
+    await ensureState();
     const g = getGroup(groupId);
     if (!g || g.type !== 'stock') return { group: g, subs: [] };
     const subs = g.subs.map((s) => ({ ...s, items: matchItems(s.match, archived) }));
     return { group: g, subs };
+}
+
+// Bulutta atomik stok hareketi (RPC) + bellek güncellemesi
+async function cloudMove(item, moveType, signedQty, note, ref = '') {
+    const row = unwrap(await supabase.rpc('apply_stock_move', {
+        p_item_id: item.id, p_move_type: moveType, p_qty: signedQty,
+        p_note: note, p_ref: ref, p_user: _currentUser,
+    }));
+    item.qty = Number(row.qty) || 0;
+    item.history.unshift({
+        type: signedQty >= 0 ? 'in' : 'out', qty: Math.abs(signedQty),
+        date: trDate(), note, ts: nowTs(), user: _currentUser,
+    });
+    return item;
 }
 
 // Stok in/out — ürün history + global log (netlify doStockIn/doStockOut birebir)
@@ -192,8 +301,12 @@ export async function stockIn(id, amount, note = '') {
     const p = await getItemById(id);
     const amt = parseInt(amount, 10) || 0;
     if (!p || amt <= 0) return p;
-    p.qty += amt;
-    p.history.unshift({ type: 'in', qty: amt, date: trDate(), note, ts: nowTs(), user: _currentUser });
+    if (isCloud()) {
+        await cloudMove(p, 'in', amt, note);
+    } else {
+        p.qty += amt;
+        p.history.unshift({ type: 'in', qty: amt, date: trDate(), note, ts: nowTs(), user: _currentUser });
+    }
     logActivity('stock-in', p.name, `+${amt} (yeni stok: ${p.qty})`);
     persist();
     return p;
@@ -202,8 +315,12 @@ export async function stockOut(id, amount, note = '') {
     const p = await getItemById(id);
     const amt = parseInt(amount, 10) || 0;
     if (!p || amt <= 0) return p;
-    p.qty = Math.max(0, p.qty - amt);
-    p.history.unshift({ type: 'out', qty: amt, date: trDate(), note, ts: nowTs(), user: _currentUser });
+    if (isCloud()) {
+        await cloudMove(p, 'out', -amt, note);
+    } else {
+        p.qty = Math.max(0, p.qty - amt);
+        p.history.unshift({ type: 'out', qty: amt, date: trDate(), note, ts: nowTs(), user: _currentUser });
+    }
     logActivity('stock-out', p.name, `−${amt} (kalan: ${p.qty})`);
     persist();
     return p;
@@ -223,6 +340,12 @@ export async function saveProduct(id, patch) {
         const name = String(patch.photo ?? '').trim().replace(/^\/+/, '').replace(/^foto\//i, '');
         p.photo = name ? `foto/${name}` : null;
     }
+    if (isCloud()) {
+        unwrap(await supabase.from('items').update({
+            qty: p.qty, critical: p.critical, note: p.note,
+            weight: p.weight, box_qty: p.boxQty, photo: p.photo,
+        }).eq('id', p.id).select().single());
+    }
     logActivity('product-edit', p.name, oldQty !== p.qty ? `stok ${oldQty} → ${p.qty}` : 'bilgi güncellendi');
     persist();
     return p;
@@ -231,19 +354,29 @@ export async function saveProduct(id, patch) {
 // ─── Ürün ekle / arşivle / sayım ───────────────────────────────────────────
 // Silme YOK: arşivlenen kalem katalog+KPI dışına çıkar, geri alınabilir.
 export async function addProduct({ name, family, cat = '', critical = 0, note = '', photo = '' }) {
-    ensureState();
+    await ensureState();
     const trimmed = (name ?? '').trim();
     if (!trimmed) return { ok: false, error: 'Ürün adı boş olamaz.' };
     if (state.items.some((i) => i.name.toLowerCase() === trimmed.toLowerCase())) {
         return { ok: false, error: 'Bu adla bir ürün zaten kayıtlı.' };
     }
-    const maxId = state.items.reduce((m, i) => Math.max(m, Number(i.id) || 0), 0);
     const photoName = String(photo ?? '').trim().replace(/^\/+/, '').replace(/^foto\//i, '');
-    const item = normalizeItem({
-        id: maxId + 1, name: trimmed, family, cat, qty: 0,
+    const fields = {
+        name: trimmed, family, cat, qty: 0,
         critical: parseInt(critical, 10) || 0, note: note ?? '',
         photo: photoName ? `foto/${photoName}` : null,
-    }, maxId + 1);
+    };
+    let item;
+    if (isCloud()) {
+        try {
+            item = rowToItem(unwrap(await supabase.from('items').insert(fields).select().single()));
+        } catch (e) {
+            return { ok: false, error: e.message };
+        }
+    } else {
+        const maxId = state.items.reduce((m, i) => Math.max(m, Number(i.id) || 0), 0);
+        item = normalizeItem({ id: maxId + 1, ...fields }, maxId + 1);
+    }
     state.items.push(item);
     logActivity('product-add', item.name, `yeni ürün (${family}${cat ? ' / ' + cat : ''})`);
     persist();
@@ -254,6 +387,9 @@ export async function setArchived(id, archived) {
     const p = await getItemById(id);
     if (!p) return null;
     p.archived = !!archived;
+    if (isCloud()) {
+        unwrap(await supabase.from('items').update({ archived: p.archived }).eq('id', p.id).select().single());
+    }
     logActivity(archived ? 'product-archive' : 'product-unarchive', p.name,
         archived ? 'arşive taşındı (katalog/KPI dışı)' : 'arşivden geri alındı');
     persist();
@@ -263,7 +399,7 @@ export async function setArchived(id, archived) {
 // Sayım Modu: [{id, counted}] — kayıtlı adetten farklı olanlar tek seferde
 // düzeltilir; her düzeltme ürün history + deftere "Sayım düzeltmesi" yazar.
 export async function applyCount(entries) {
-    ensureState();
+    await ensureState();
     const applied = [];
     for (const { id, counted } of entries) {
         const p = state.items.find((i) => String(i.id) === String(id));
@@ -271,11 +407,15 @@ export async function applyCount(entries) {
         if (!p || !Number.isFinite(n) || n < 0 || n === p.qty) continue;
         const old = p.qty;
         const diff = n - old;
-        p.qty = n;
-        p.history.unshift({
-            type: diff > 0 ? 'in' : 'out', qty: Math.abs(diff), date: trDate(),
-            note: `Sayım düzeltmesi (${old} → ${n})`, ts: nowTs(), user: _currentUser,
-        });
+        if (isCloud()) {
+            await cloudMove(p, 'count', diff, `Sayım düzeltmesi (${old} → ${n})`);
+        } else {
+            p.qty = n;
+            p.history.unshift({
+                type: diff > 0 ? 'in' : 'out', qty: Math.abs(diff), date: trDate(),
+                note: `Sayım düzeltmesi (${old} → ${n})`, ts: nowTs(), user: _currentUser,
+            });
+        }
         logActivity('count-adjust', p.name, `${old} → ${n} (fark ${diff > 0 ? '+' : ''}${diff})`);
         applied.push({ id: p.id, name: p.name, old, next: n, diff });
     }
@@ -290,6 +430,11 @@ export async function setBomRow(productId, itemId, qty) {
     const comp = await getItemById(itemId);
     const n = parseInt(qty, 10) || 0;
     if (!p || !comp || n <= 0 || String(p.id) === String(comp.id)) return null;
+    if (isCloud()) {
+        unwrap(await supabase.from('boms')
+            .upsert({ product_id: p.id, component_id: comp.id, qty: n }, { onConflict: 'product_id,component_id' })
+            .select());
+    }
     if (!Array.isArray(p.bom)) p.bom = [];
     const row = p.bom.find((r) => String(r.itemId) === String(comp.id));
     if (row) row.qty = n; else p.bom.push({ itemId: comp.id, qty: n });
@@ -302,6 +447,10 @@ export async function removeBomRow(productId, itemId) {
     const p = await getItemById(productId);
     if (!p || !Array.isArray(p.bom)) return null;
     const comp = await getItemById(itemId);
+    if (isCloud()) {
+        unwrap(await supabase.from('boms').delete()
+            .eq('product_id', p.id).eq('component_id', Number(itemId)).select());
+    }
     p.bom = p.bom.filter((r) => String(r.itemId) !== String(itemId));
     logActivity('bom-edit', p.name, `reçeteden çıkarıldı: ${comp?.name ?? '#' + itemId}`);
     persist();
@@ -320,32 +469,61 @@ export async function getBomDetail(productId) {
 
 // Ters liste: bu komponent hangi ürünlerin reçetesinde geçiyor?
 export async function getWhereUsed(itemId) {
-    ensureState();
+    await ensureState();
     return state.items
         .filter((p) => Array.isArray(p.bom) && p.bom.some((r) => String(r.itemId) === String(itemId)))
         .map((p) => ({ product: p, qty: p.bom.find((r) => String(r.itemId) === String(itemId)).qty }));
 }
 
 // ─── Aktif üretim + arşiv ──────────────────────────────────────────────────
-export async function getActiveRuns() { return ensureState().activeRuns; }
-export async function getProductionArchive() { return ensureState().productionArchive; }
+export async function getActiveRuns() { return (await ensureState()).activeRuns; }
+export async function getProductionArchive() { return (await ensureState()).productionArchive; }
 
 export async function startProduction(productName, qty, note = '') {
-    ensureState();
-    const run = { id: nowTs(), name: productName, qty: parseInt(qty, 10) || 0, note, startedAt: nowTs(), user: _currentUser };
+    await ensureState();
+    const n = parseInt(qty, 10) || 0;
+    let run;
+    if (isCloud()) {
+        const item = state.items.find((i) => i.name === productName);
+        const row = unwrap(await supabase.from('production_orders').insert({
+            item_id: item?.id ?? null, product_name: productName, qty: n,
+            status: 'active', note, user_name: _currentUser, started_at: new Date().toISOString(),
+        }).select().single());
+        run = { id: row.id, name: productName, qty: n, note, startedAt: nowTs(), user: _currentUser };
+    } else {
+        run = { id: nowTs(), name: productName, qty: n, note, startedAt: nowTs(), user: _currentUser };
+    }
     state.activeRuns.unshift(run);
     logActivity('production-start', productName, `${run.qty} adet üretime alındı`);
     persist();
     return run;
 }
+
 export async function completeRun(runId) {
-    ensureState();
+    await ensureState();
     const idx = state.activeRuns.findIndex((r) => r.id === runId);
     if (idx < 0) return null;
     const run = state.activeRuns.splice(idx, 1)[0];
     run.completedAt = nowTs();
     state.productionArchive.unshift(run);
-    // Bitmiş ürün stoğuna ekle (varsa) + BOM doluysa komponentleri tüket
+
+    if (isCloud()) {
+        // Üretimi stoğa al + BOM'u tüket — tek atomik RPC; defter kayıtları app'ten
+        unwrap(await supabase.rpc('complete_production_order', { p_order_id: run.id, p_user: _currentUser }));
+        const p = state.items.find((i) => i.name === run.name);
+        if (p?.bom?.length) {
+            for (const row of p.bom) {
+                const comp = state.items.find((i) => String(i.id) === String(row.itemId));
+                const consume = (Number(row.qty) || 0) * run.qty;
+                if (comp && consume > 0) logActivity('production-consume', comp.name, `−${consume} (${run.name} ×${run.qty})`);
+            }
+        }
+        logActivity('production-done', run.name, `${run.qty} adet tamamlandı → stok`);
+        invalidate();   // adetler DB'de değişti — bir sonraki ekran taze çeker
+        return run;
+    }
+
+    // Lokal mod: bitmiş ürün stoğuna ekle + BOM doluysa komponentleri tüket
     const p = state.items.find((i) => i.name === run.name);
     if (p) {
         p.qty += run.qty;
@@ -370,40 +548,52 @@ export async function completeRun(runId) {
 }
 
 // ─── Planlı üretim (PDF/not kartları) ──────────────────────────────────────
-export async function getPlans() { return ensureState().plans; }
+export async function getPlans() { return (await ensureState()).plans; }
 export async function addPlan(name, cat, note) {
-    ensureState();
-    const plan = { id: nowTs(), name, cat: cat ?? '', note: note ?? '', createdAt: nowTs(), user: _currentUser };
+    await ensureState();
+    let plan;
+    if (isCloud()) {
+        const row = unwrap(await supabase.from('production_orders').insert({
+            product_name: name, qty: 1, status: 'planned', cat: cat ?? '',
+            note: note ?? '', user_name: _currentUser,
+        }).select().single());
+        plan = { id: row.id, name, cat: cat ?? '', note: note ?? '', createdAt: nowTs(), user: _currentUser };
+    } else {
+        plan = { id: nowTs(), name, cat: cat ?? '', note: note ?? '', createdAt: nowTs(), user: _currentUser };
+    }
     state.plans.unshift(plan);
     logActivity('plan-add', name, 'yeni üretim planı');
     persist();
     return plan;
 }
 export async function deletePlan(id) {
-    ensureState();
+    await ensureState();
+    if (isCloud()) {
+        unwrap(await supabase.from('production_orders').delete().eq('id', id).eq('status', 'planned').select());
+    }
     state.plans = state.plans.filter((p) => p.id !== id);
     persist();
 }
 
-// ─── Havuz testi (ops.pool) ────────────────────────────────────────────────
-export async function getPoolItems() { return ensureState().pool; }
+// ─── Havuz testi (pool_tests / ops.pool) ───────────────────────────────────
+export async function getPoolItems() { return (await ensureState()).pool; }
 export async function getPoolItemById(id) {
-    ensureState();
+    await ensureState();
     return state.pool.find((p) => String(p.id) === String(id)) ?? null;
 }
 
 // ─── Dış üretim (fason — Ömer Kablo) ───────────────────────────────────────
-export async function getOutsourceJobs() { return ensureState().dis; }
+export async function getOutsourceJobs() { return (await ensureState()).dis; }
 
 // ─── Hareket defteri (global activityLog) ──────────────────────────────────
 export async function getActivityLog() {
-    ensureState();
+    await ensureState();
     return state.activityLog.slice().sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0));
 }
 
 // ─── KPI'lar + genel bakış ─────────────────────────────────────────────────
 export async function getKpis() {
-    ensureState();
+    await ensureState();
     const live = state.items.filter((i) => !i.archived);
     const critical = live.filter((i) => stockStatus(i) === 'critical');
     return {
@@ -413,110 +603,18 @@ export async function getKpis() {
         outsourceCount: state.dis.length,
     };
 }
+
 // Fotoğrafı olmayan bitmiş ürünler — Faz 0 çekim listesi (Salih sırayla çekecek)
 export async function getMissingPhotoItems() {
-    ensureState();
+    await ensureState();
     return state.items.filter((i) => i.family === 'finished' && !i.photo && !i.archived);
 }
 
 export async function getCriticalItems() {
-    ensureState();
+    await ensureState();
     return state.items
         .filter((i) => !i.archived && stockStatus(i) !== 'ok')
         .sort((a, b) => (a.qty - a.critical) - (b.qty - b.critical));
-}
-
-// ─── CRM (Google Sheets v4 aynası) ──────────────────────────────────────────
-// Yerel yazma API'si (tools/crm_api.py, port 5001) ayaktaysa canlı Sheet'ten
-// okunur ve yazma açılır; değilse pakete gömülü snapshot'a düşülür (salt-okur).
-export function normalizeStage(stage) { return (stage ?? '').replace(/\s*\/\s*/g, ' / ').trim(); }
-export function parseCrmDate(str) {
-    const m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec((str ?? '').trim());
-    return m ? new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1])) : null;
-}
-export function parseCrmMoney(str) {
-    const clean = (str ?? '').replace(/[^\d,.]/g, '').replace(/\./g, '').replace(',', '.');
-    const n = Number(clean);
-    return clean && Number.isFinite(n) ? n : null;
-}
-function normalizeDeal(raw, source) { return { ...raw, stage: normalizeStage(raw.stage), source }; }
-
-const CRM_API = 'http://127.0.0.1:5001';
-let _crmCache = null;           // { data, live, at }
-const CRM_TTL_MS = 60_000;      // canlı veriyi 60 sn önbellekle; yazmalar refreshCrm() çağırır
-
-async function fetchLiveCrm() {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 4000);
-    try {
-        const res = await fetch(`${CRM_API}/api/crm`, { signal: ctrl.signal });
-        const j = await res.json();
-        if (!j.ok) throw new Error(j.error || 'CRM API hatası');
-        return j;
-    } finally { clearTimeout(t); }
-}
-
-export function refreshCrm() { _crmCache = null; }
-export function isCrmLive() { return _crmCache?.live ?? false; }
-
-function shapeCrm(raw, live) {
-    return {
-        pipeline: raw.pipeline.map((d) => normalizeDeal(d, 'pipeline')),
-        completed: raw.completed.map((d) => normalizeDeal(d, 'completed')),
-        lost: raw.lost.map((d) => normalizeDeal(d, 'lost')),
-        activityLog: raw.activityLog,
-        lists: raw.lists,
-        fetchedAt: live ? `canlı · ${new Date().toLocaleTimeString('tr-TR')}` : (raw.fetchedAt ?? null),
-        live,
-    };
-}
-
-export async function getCrm() {
-    if (_crmCache && (Date.now() - _crmCache.at) < CRM_TTL_MS) return _crmCache.data;
-    let data;
-    try {
-        data = shapeCrm(await fetchLiveCrm(), true);
-    } catch {
-        if (!crmJson) {
-            return { pipeline: sampleCrmDeals, completed: [], lost: [], activityLog: [],
-                lists: { Stage: [], 'Next Action': [], Owner: [], Channel: [], Direction: [] }, live: false };
-        }
-        data = shapeCrm(crmJson, false);
-    }
-    _crmCache = { data, live: data.live, at: Date.now() };
-    return data;
-}
-
-async function crmPost(method, path, body) {
-    const res = await fetch(`${CRM_API}${path}`, {
-        method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    });
-    const j = await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status}` }));
-    if (!j.ok) throw new Error(j.error || `HTTP ${res.status}`);
-    refreshCrm();
-    return j;
-}
-
-export async function crmAddDeal(deal) { return crmPost('POST', '/api/crm/deal', deal); }
-export async function crmUpdateDeal(id, patch) {
-    return crmPost('PUT', `/api/crm/deal/${encodeURIComponent(id)}`, patch);
-}
-export async function crmAddActivity(entry) { return crmPost('POST', '/api/crm/log', entry); }
-export async function getDealById(id) {
-    const crm = await getCrm();
-    return [...crm.pipeline, ...crm.completed, ...crm.lost].find((d) => d.id === id) ?? null;
-}
-export async function getDealActivities(dealId) {
-    const crm = await getCrm();
-    return crm.activityLog
-        .filter((a) => a.dealId === dealId)
-        .sort((a, b) => (parseCrmDate(b.date)?.getTime() ?? 0) - (parseCrmDate(a.date)?.getTime() ?? 0));
-}
-export function isOverdue(dateStr) {
-    const d = parseCrmDate(dateStr);
-    if (!d) return false;
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    return d < today;
 }
 
 // ─── Ortak yardımcılar ─────────────────────────────────────────────────────

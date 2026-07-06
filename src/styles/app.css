@@ -133,6 +133,27 @@ tr.row-critical td:nth-child(2) { color: var(--color-pink); font-weight: 600; }
 .toolbar-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
 .control-row .toolbar-actions, .card-header .toolbar-actions { margin-top: 0; }
 
+/* Giriş ekranı (bulut modu) */
+.login-overlay { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center;
+    justify-content: center; background: var(--bg-deep, #070b19); }
+.login-card { width: 340px; padding: 36px 32px; border: 1px solid var(--border-glass);
+    border-radius: 20px; display: flex; flex-direction: column; gap: 12px; text-align: center; }
+.login-logo { width: 64px; height: 64px; object-fit: contain; margin: 0 auto 4px; }
+.login-card h2 { font-size: 1.25rem; letter-spacing: 1px; }
+.login-card h2 span { color: var(--color-cyan); }
+.login-sub { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px; }
+.login-card input { background: var(--bg-glass-card); color: var(--text-primary);
+    border: 1px solid var(--border-glass); border-radius: 10px; padding: 11px 14px;
+    font-family: 'Outfit', sans-serif; font-size: 0.9rem; }
+.login-card input:focus { outline: none; border-color: var(--color-cyan); }
+.login-error { font-size: 0.78rem; color: var(--color-pink); }
+
+/* Çıkış düğmesi (sidebar footer) */
+.btn-logout { margin-left: auto; width: 30px; height: 30px; border-radius: 8px;
+    background: transparent; color: var(--text-muted); border: 1px solid var(--border-glass);
+    cursor: pointer; font-size: 0.9rem; }
+.btn-logout:hover { color: var(--color-pink); border-color: rgba(247,37,133,0.4); }
+
 /* Sayım modu girişleri */
 .cnt-input { width: 110px; background: var(--bg-glass-card); color: var(--text-primary);
     border: 1px solid var(--border-glass); border-radius: 8px; padding: 6px 10px;
