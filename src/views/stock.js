@@ -9,7 +9,7 @@ import {
 import { isCloud, uploadFile, publicFileUrl, removeFile } from '../data/supabase.js';
 import {
     photoUrl, placeholderHtml, statusPillClass, esc, fmtWhen, iconForFamily,
-    LIGHTING_MODELS, lightingModelOf, compressImage,
+    LIGHTING_MODELS, lightingModelOf, compressImage, SOURCE_META, sourceBadge,
 } from './helpers.js';
 import { showToast } from '../main.js';
 
@@ -285,6 +285,7 @@ function renderCard(p) {
                     <span class="card-qty-val ${st === 'critical' ? 'text-pink' : ''}">${p.qty}</span>
                     <span class="lbl-crt">Kritik: ${p.critical}</span>
                 </div>
+                ${sourceBadge(p)}
             </div>
             <div class="card-quick-adjust-bar">
                 <button class="btn-card-adjust adjust-minus" title="1 çıkış">− 1</button>
@@ -333,6 +334,7 @@ export const stockDetailView = {
                     <div class="detail-right">
                         <div class="grid-card bg-glass">
                             <span class="detail-cat-tag">${esc(p.family)}</span>
+                            ${sourceBadge(p)}
                             ${p.archived ? '<span class="stage-pill stage-lost" style="margin-left:8px">ARŞİVDE</span>' : ''}
                             <h2 class="detail-name">${esc(p.name)}</h2>
                             <div class="detail-kpi-row">
@@ -350,6 +352,21 @@ export const stockDetailView = {
                                     <div class="form-group"><label>Ağırlık (kg)</label><input type="text" id="e-weight" value="${p.weight ?? ''}"></div>
                                 </div>
                                 <div class="form-group"><label>Not</label><input type="text" id="e-note" value="${esc(p.note)}"></div>
+                                <div class="source-edit">
+                                    <label class="source-edit-title">🔗 Kaynak / Tedarik <span class="hint">— bu parça nereden gelir?</span></label>
+                                    <div class="form-row-2">
+                                        <div class="form-group"><label>Kaynak Tipi</label>
+                                            <select id="e-source">
+                                                <option value="" ${!p.sourceType ? 'selected' : ''}>— belirsiz —</option>
+                                                ${Object.entries(SOURCE_META).map(([k, m]) =>
+                                                    `<option value="${k}" ${p.sourceType === k ? 'selected' : ''}>${m.icon} ${m.label}</option>`).join('')}
+                                            </select></div>
+                                        <div class="form-group"><label>Tedarikçi</label>
+                                            <input type="text" id="e-supplier" value="${esc(p.supplier || '')}" placeholder="ör. Ömer Kablo, Mean Well"></div>
+                                    </div>
+                                    <div class="form-group"><label>Tedarik Notu <span class="hint">(marka, min. sipariş, teslim süresi)</span></label>
+                                        <input type="text" id="e-source-note" value="${esc(p.sourceNote || '')}" placeholder="opsiyonel"></div>
+                                </div>
                                 <div class="form-group"><label>Fotoğraf</label>
                                     <div class="photo-edit-row">
                                         ${isCloud() ? `
@@ -442,6 +459,9 @@ export const stockDetailView = {
                     boxQty: pane.querySelector('#e-box').value,
                     weight: pane.querySelector('#e-weight').value,
                     note: pane.querySelector('#e-note').value,
+                    sourceType: pane.querySelector('#e-source').value,
+                    supplier: pane.querySelector('#e-supplier').value.trim(),
+                    sourceNote: pane.querySelector('#e-source-note').value.trim(),
                     photo: pane.querySelector('#e-photo').value,
                 });
                 showToast('Kaydedildi.'); draw();

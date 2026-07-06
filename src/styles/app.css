@@ -158,6 +158,24 @@ tr.row-critical td:nth-child(2) { color: var(--color-pink); font-weight: 600; }
 .deal-order-name { flex: 1; font-size: 0.85rem; }
 .modal-hint { font-size: 0.78rem; color: var(--text-secondary); margin: 0 0 12px; line-height: 1.4; }
 
+/* Komponent kaynağı rozeti (sourcing köprüsü) */
+.src-badge {
+    display: inline-flex; align-items: center; gap: 4px; margin-top: 8px;
+    font-size: 0.68rem; padding: 2px 8px; border-radius: 999px;
+    border: 1px solid transparent; white-space: nowrap; max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis;
+}
+.src-inhouse   { background: rgba(6,214,160,0.12);  color: #4fe3b0; border-color: rgba(6,214,160,0.3); }
+.src-outsource { background: rgba(255,209,102,0.12); color: #ffd166; border-color: rgba(255,209,102,0.3); }
+.src-purchase  { background: rgba(0,187,249,0.12);  color: #5cc8ff; border-color: rgba(0,187,249,0.3); }
+/* Detay formundaki kaynak bölümü */
+.source-edit {
+    border: 1px solid var(--border-glass); border-radius: 10px;
+    padding: 12px 14px; margin: 4px 0 14px; background: rgba(255,255,255,0.02);
+}
+.source-edit-title { display: block; font-size: 0.82rem; margin-bottom: 10px; }
+.source-edit-title .hint { font-weight: 400; }
+
 /* Aydınlatma model bölümleri (katalogda Ortak / 306 / 406C ... başlıkları) */
 .grid-section { margin-bottom: 22px; }
 .grid-section-title {

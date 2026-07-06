@@ -93,6 +93,7 @@ function rowToItem(r) {
         note: r.note ?? '', photo: r.photo || null,
         boxQty: r.box_qty ?? null, weight: r.weight === null ? null : Number(r.weight),
         tr: r.tr ?? r.name, history: [], components: null,
+        sourceType: r.source_type ?? '', supplier: r.supplier ?? '', sourceNote: r.source_note ?? '',
         bom: [], archived: !!r.archived,
     };
 }
@@ -349,6 +350,9 @@ export async function saveProduct(id, patch) {
     if (patch.note !== undefined) p.note = patch.note;
     if (patch.weight !== undefined) p.weight = patch.weight === '' ? null : parseFloat(patch.weight);
     if (patch.boxQty !== undefined) p.boxQty = patch.boxQty === '' ? null : parseInt(patch.boxQty, 10);
+    if (patch.sourceType !== undefined) p.sourceType = patch.sourceType ?? '';
+    if (patch.supplier !== undefined) p.supplier = patch.supplier ?? '';
+    if (patch.sourceNote !== undefined) p.sourceNote = patch.sourceNote ?? '';
     if (patch.photo !== undefined) {
         const raw = String(patch.photo ?? '').trim();
         if (!raw) p.photo = null;
@@ -359,6 +363,7 @@ export async function saveProduct(id, patch) {
         unwrap(await supabase.from('items').update({
             qty: p.qty, critical: p.critical, note: p.note,
             weight: p.weight, box_qty: p.boxQty, photo: p.photo,
+            source_type: p.sourceType, supplier: p.supplier, source_note: p.sourceNote,
         }).eq('id', p.id).select().single());
     }
     logActivity('product-edit', p.name, oldQty !== p.qty ? `stok ${oldQty} → ${p.qty}` : 'bilgi güncellendi');

@@ -67,6 +67,20 @@ export function placeholderHtml(item, large = false) {
         </div>`;
 }
 
+// ─── Komponent kaynağı (sourcing köprüsü) ──────────────────────────────────
+// Her parça nereden temin edilir: kendi üretim / dış fason / satın alma.
+export const SOURCE_META = {
+    inhouse:   { label: 'Kendi Üretim', icon: '🏭', cls: 'src-inhouse' },
+    outsource: { label: 'Dış Fason',    icon: '🤝', cls: 'src-outsource' },
+    purchase:  { label: 'Satın Alma',   icon: '🛒', cls: 'src-purchase' },
+};
+export function sourceBadge(item) {
+    const m = SOURCE_META[item?.sourceType];
+    if (!m) return '';
+    const sup = item.supplier ? ` · ${esc(item.supplier)}` : '';
+    return `<span class="src-badge ${m.cls}" title="Kaynak: ${m.label}${item.supplier ? ' — ' + esc(item.supplier) : ''}">${m.icon} ${m.label}${sup}</span>`;
+}
+
 // stockStatus -> v2 pill sınıfı (Kritik=pink, Azalıyor=amber, Yeterli=green)
 export function statusPillClass(status) {
     if (status === 'critical') return 'status-out';

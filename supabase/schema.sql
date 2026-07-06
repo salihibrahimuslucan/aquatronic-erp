@@ -32,6 +32,9 @@ create table if not exists items (
     box_qty   integer,
     weight    numeric,
     tr        text not null default '',  -- Türkçe arama etiketi
+    source_type text not null default '', -- '' | inhouse | outsource | purchase (komponent kaynağı)
+    supplier    text not null default '', -- tedarikçi adı
+    source_note text not null default '', -- tedarik notu (marka/min. sipariş/teslim süresi)
     archived  boolean not null default false,
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now()
