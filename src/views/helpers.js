@@ -18,11 +18,11 @@ export function iconForFamily(key) {
     return FAMILY_ICONS[key] ?? familyIcon(key);
 }
 
-// items.json'da photo "foto/1.jpg" olarak duruyor; dosyalar public/foto altında
-// olduğundan kök-göreli URL'ye çevir.
+// items.json'da photo "foto/1.jpg" olarak duruyor; dosyalar public/foto altında.
+// GÖRELİ yol döndür: file:// ile açılan dist'te de (dist/foto kopyası) çalışsın.
 export function photoUrl(item) {
     if (!item?.photo) return null;
-    return '/' + String(item.photo).replace(/^\/+/, '');
+    return String(item.photo).replace(/^\/+/, '');
 }
 
 // Foto yoksa: aile ikonu + ürün adının baş harfi.
