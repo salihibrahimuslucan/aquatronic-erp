@@ -12,7 +12,7 @@ import { isCloud, getProfile, signIn, signOut } from './data/supabase.js';
 // build:uretim + Supabase RLS).
 let userProfile = null;
 const ROLE_LABEL = { yonetici: 'Yönetici', uretim: 'Üretim', satis: 'Satış' };
-function salesAllowed() {
+export function salesAllowed() {
     return WITH_SALES && (!userProfile || userProfile.role !== 'uretim');
 }
 
@@ -168,7 +168,7 @@ async function boot() {
     if (isCloud()) {
         userProfile = await getProfile().catch(() => null);
         if (!userProfile) userProfile = await showLogin();
-        setCurrentUser(userProfile.full_name);
+        setCurrentUser(userProfile.full_name, userProfile.role);
         renderUserFooter();
     }
     buildNav();

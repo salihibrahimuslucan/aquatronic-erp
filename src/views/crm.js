@@ -6,6 +6,8 @@ import {
     normalizeStage, parseCrmDate, parseCrmMoney, isOverdue,
     crmAddDeal, crmUpdateDeal, crmAddActivity,
 } from '../data/crm-store.js';
+import { getItems, createOrderFromDeal, getOrdersForDeal } from '../data/store.js';
+import { showToast } from '../main.js';
 
 function esc(s) {
     return String(s ?? '').replace(/[&<>"']/g, (c) => (
@@ -209,6 +211,62 @@ function openActivityModal({ deal, lists, onDone }) {
     });
 }
 
+// Faz 2 köprüsü: fırsatı planlı üretim emrine çevir. Ürün kataloğundan kalem +
+// adet seçilir; not şirket/proje ile ön-doldurulur (üretim ekibinin gördüğü
+// operasyonel bağlam — fiyat/iletişim CRM'de kalır).
+function openConvertModal({ deal, items, onDone }) {
+    const noteDefault = `${deal.company}${deal.project ? ' · ' + deal.project : ''}`;
+    // Fırsatın ürün metnine en yakın katalog kalemini ön-seç
+    const wanted = (deal.product ?? '').toLowerCase();
+    const preselect = wanted
+        ? (items.find((i) => i.name.toLowerCase() === wanted)
+            ?? items.find((i) => wanted && i.name.toLowerCase().includes(wanted.split(/\s+/)[0]))) : null;
+    openModal({
+        title: `Üretime Aktar — ${deal.id}`,
+        submitLabel: 'Planlı Emir Aç',
+        bodyHtml: `
+            <p class="modal-hint">Fırsat planlı üretim emrine dönüşür; üretim ekibi Planlı Üretim'den "Üretime Al" ile başlatır.</p>
+            <div class="form-group"><label>Ürün *</label>
+                <select name="product" required>${items.map((i) =>
+                    `<option ${preselect && i.name === preselect.name ? 'selected' : ''}>${esc(i.name)}</option>`).join('')}</select></div>
+            <div class="form-row-2">
+                <div class="form-group"><label>Adet *</label>
+                    <input type="number" name="qty" value="1" min="1" required class="mono"></div>
+                <div class="form-group"><label>Fırsat ürünü (metin)</label>
+                    <input type="text" value="${esc(deal.product || '—')}" readonly class="locked"></div>
+            </div>
+            <div class="form-group"><label>Not <span class="hint">(üretim ekibi görür)</span></label>
+                <input type="text" name="note" value="${esc(noteDefault)}"></div>`,
+        async onSubmit(form, close) {
+            const d = readForm(form);
+            const item = items.find((i) => i.name === d.product);
+            const order = await createOrderFromDeal({
+                dealId: deal.id, itemId: item?.id ?? null, productName: d.product,
+                qty: d.qty, note: d.note,
+            });
+            // CRM izini bırak: aktivite + (pipeline'sa) Latest güncelle
+            try {
+                await crmAddActivity({
+                    dealId: deal.id, date: today(), company: deal.company, contact: deal.contact,
+                    direction: 'Outbound', channel: 'ERP', by: deal.owner,
+                    summary: `Üretime aktarıldı — planlı emir #${order.id} · ${d.product} ×${d.qty}`,
+                    updateLatest: deal.source === 'pipeline',
+                });
+            } catch { /* aktivite yazımı başarısızsa emir yine de açıldı */ }
+            close();
+            showToast(`Planlı emir açıldı: ${d.product} ×${d.qty}`);
+            onDone();
+        },
+    });
+}
+
+// Bağlı üretim emri durumu → pil sınıfı + etiket + hedef görünüm
+const ORDER_STATUS = {
+    planned: { label: 'Planlı', cls: 'stage-await', goto: 'g/planned' },
+    active: { label: 'Üretimde', cls: 'stage-prod', goto: 'g/active' },
+    done: { label: 'Tamamlandı', cls: 'stage-won', goto: 'g/active' },
+};
+
 // ---------------------------------------------------------------- Pipeline
 
 export const crmPipelineView = {
@@ -368,8 +426,11 @@ export const crmDealView = {
             return;
         }
         const activities = await getDealActivities(deal.id);
+        const linkedOrders = await getOrdersForDeal(deal.id);
         const sourceLabel = { pipeline: 'Pipeline', completed: 'Completed (arşiv)', lost: 'Lost - Rejected (arşiv)' }[deal.source];
         const writeOff = crm.live ? '' : 'disabled title="CRM yazma API\'si kapalı — python tools/crm_api.py çalıştır"';
+        // Kayıp fırsatta üretime aktarma anlamsız
+        const canConvert = deal.source !== 'lost';
 
         pane.innerHTML = `
             <div class="detail-actions">
@@ -380,6 +441,7 @@ export const crmDealView = {
                 <span class="badge badge-muted">${esc(sourceLabel)}</span>
                 <span class="detail-actions-right">
                     ${deal.source === 'pipeline' ? `<button class="btn btn-outline" id="btn-edit-deal" ${writeOff}>✎ Düzenle</button>` : ''}
+                    ${canConvert ? `<button class="btn btn-outline" id="btn-convert" ${writeOff}>🏭 Üretime Aktar</button>` : ''}
                     <button class="btn btn-primary" id="btn-add-activity" ${writeOff}>＋ Aktivite Ekle</button>
                 </span>
             </div>
@@ -405,6 +467,17 @@ export const crmDealView = {
                         <strong>Latest</strong>
                         <p>${esc(deal.latest || '—')}</p>
                     </div>
+
+                    ${linkedOrders.length ? `<div class="deal-orders">
+                        <strong>Bağlı Üretim Emirleri <span class="count-chip">${linkedOrders.length}</span></strong>
+                        <div class="deal-orders-list">${linkedOrders.map((o) => {
+                            const s = ORDER_STATUS[o.status] ?? ORDER_STATUS.planned;
+                            return `<a class="deal-order-row" href="#/${s.goto}">
+                                <span class="mono">#${esc(o.id)}</span>
+                                <span class="deal-order-name">${esc(o.name)} <span class="mono">×${esc(o.qty)}</span></span>
+                                <span class="stage-pill ${s.cls}">${s.label}</span></a>`;
+                        }).join('')}</div>
+                    </div>` : ''}
                 </div>
 
                 <div class="detail-right">
@@ -435,6 +508,10 @@ export const crmDealView = {
         const rerender = () => this.render(pane, params);
         pane.querySelector('#btn-edit-deal')?.addEventListener('click', () => {
             openDealModal({ mode: 'edit', deal, lists: crm.lists, onDone: rerender });
+        });
+        pane.querySelector('#btn-convert')?.addEventListener('click', async () => {
+            const items = await getItems();
+            openConvertModal({ deal, items, onDone: rerender });
         });
         pane.querySelector('#btn-add-activity').addEventListener('click', () => {
             openActivityModal({ deal, lists: crm.lists, onDone: rerender });

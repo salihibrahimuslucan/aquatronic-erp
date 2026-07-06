@@ -173,14 +173,17 @@ async function loadCloudState() {
         dis: dis.map(rowToOutsource),
         activeRuns: orders.filter((o) => o.status === 'active').map((o) => ({
             id: o.id, name: o.product_name, qty: o.qty, note: o.note, pdf: o.pdf_path ?? '',
+            itemId: o.item_id ?? null, dealId: o.source_deal_id ?? '',
             startedAt: o.started_at ? new Date(o.started_at).getTime() : null, user: o.user_name,
         })),
         plans: orders.filter((o) => o.status === 'planned').map((o) => ({
-            id: o.id, name: o.product_name, cat: o.cat ?? '', note: o.note, pdf: o.pdf_path ?? '',
+            id: o.id, name: o.product_name, qty: o.qty, cat: o.cat ?? '', note: o.note, pdf: o.pdf_path ?? '',
+            itemId: o.item_id ?? null, dealId: o.source_deal_id ?? '',
             createdAt: new Date(o.created_at).getTime(), user: o.user_name,
         })),
         productionArchive: orders.filter((o) => o.status === 'done').map((o) => ({
             id: o.id, name: o.product_name, qty: o.qty, note: o.note, pdf: o.pdf_path ?? '',
+            itemId: o.item_id ?? null, dealId: o.source_deal_id ?? '',
             completedAt: o.completed_at ? new Date(o.completed_at).getTime() : null, user: o.user_name,
         })),
         activityLog: log.map((a) => ({
@@ -230,8 +233,10 @@ export function resetToSeed() {
 }
 
 let _currentUser = 'Salih';
-export function setCurrentUser(u) { _currentUser = u || 'Salih'; }
+let _currentRole = 'yonetici';
+export function setCurrentUser(u, role) { _currentUser = u || 'Salih'; if (role) _currentRole = role; }
 export function getCurrentUser() { return _currentUser; }
+export function getCurrentRole() { return _currentRole; }
 
 function nowTs() { return Date.now(); }
 function trDate() { return new Date().toLocaleDateString('tr-TR'); }
@@ -601,6 +606,66 @@ export async function deletePlan(id) {
     }
     state.plans = state.plans.filter((p) => p.id !== id);
     persist();
+}
+
+// ─── Faz 2 köprüsü: CRM fırsatı → üretim emri ──────────────────────────────
+// Fırsattan PLANLI emir açar (item_id BOM köprüsü için, dealId geri-bağ için).
+// Bulut: create_order_from_deal RPC (rol denetimi + atomik). Emir Planlı
+// Üretim'de görünür; "Üretime Al" ile aktive edilir.
+export async function createOrderFromDeal({ dealId, itemId = null, productName, qty, note = '' }) {
+    await ensureState();
+    const n = parseInt(qty, 10) || 0;
+    if (!productName || n <= 0) throw new Error('ürün ve adet (>0) zorunlu');
+    let plan;
+    if (isCloud()) {
+        const row = unwrap(await supabase.rpc('create_order_from_deal', {
+            p_deal_id: dealId, p_item_id: itemId, p_product_name: productName,
+            p_qty: n, p_note: note, p_user: _currentUser,
+        }));
+        plan = { id: row.id, name: row.product_name, qty: row.qty, cat: row.cat ?? 'CRM',
+            note: row.note ?? '', pdf: '', itemId: row.item_id ?? null, dealId: row.source_deal_id ?? dealId,
+            createdAt: new Date(row.created_at).getTime(), user: row.user_name };
+    } else {
+        plan = { id: nowTs(), name: productName, qty: n, cat: 'CRM', note, pdf: '',
+            itemId, dealId, createdAt: nowTs(), user: _currentUser };
+    }
+    state.plans.unshift(plan);
+    logActivity('deal-to-order', productName, `Fırsat ${dealId} → planlı emir (${n} adet)`);
+    persist();
+    return plan;
+}
+
+// Planlı emri Aktif Üretim'e alır (planned → active). item_id/dealId taşınır.
+export async function startPlan(planId) {
+    await ensureState();
+    const idx = state.plans.findIndex((p) => p.id === planId);
+    if (idx < 0) return null;
+    const plan = state.plans[idx];
+    if (isCloud()) {
+        unwrap(await supabase.from('production_orders')
+            .update({ status: 'active', started_at: new Date().toISOString() })
+            .eq('id', planId).eq('status', 'planned').select());
+    }
+    state.plans.splice(idx, 1);
+    const run = { id: plan.id, name: plan.name, qty: plan.qty || 1, note: plan.note, pdf: plan.pdf || '',
+        itemId: plan.itemId ?? null, dealId: plan.dealId ?? '', startedAt: nowTs(), user: _currentUser };
+    state.activeRuns.unshift(run);
+    logActivity('production-start', run.name, `${run.qty} adet üretime alındı (planlı emir)`);
+    persist();
+    return run;
+}
+
+// Bir fırsata bağlı üretim emirleri (planlı + aktif + arşiv) — CRM Deal View için.
+export async function getOrdersForDeal(dealId) {
+    if (!dealId) return [];
+    await ensureState();
+    const tag = (arr, status) => arr.filter((o) => String(o.dealId) === String(dealId))
+        .map((o) => ({ id: o.id, name: o.name, qty: o.qty, status }));
+    return [
+        ...tag(state.activeRuns, 'active'),
+        ...tag(state.plans, 'planned'),
+        ...tag(state.productionArchive, 'done'),
+    ];
 }
 
 // ─── Havuz testi (pool_tests / ops.pool) ───────────────────────────────────

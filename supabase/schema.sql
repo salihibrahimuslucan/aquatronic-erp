@@ -88,6 +88,7 @@ create table if not exists production_orders (
     cat          text not null default '', -- planlı kartlardaki kategori etiketi
     note         text not null default '',
     pdf_path     text not null default '', -- storage 'erp-files' içindeki plan PDF yolu
+    source_deal_id text not null default '', -- Faz 2 köprüsü: bağlı CRM fırsatı (opak ID)
     user_name    text not null default '',
     created_at   timestamptz not null default now(),
     started_at   timestamptz,
@@ -116,6 +117,27 @@ begin
     end if;
     return v_ord;
 end $$;
+
+-- Faz 2 köprüsü: CRM fırsatından PLANLI üretim emri açar. security definer —
+-- CRM yetkilisi (yönetici/satış) üretim-yazma iznine sahip olmasa da açabilir.
+create or replace function create_order_from_deal(
+    p_deal_id text, p_item_id bigint, p_product_name text,
+    p_qty integer, p_note text default '', p_user text default ''
+) returns production_orders language plpgsql security definer set search_path = public as $$
+declare v_ord production_orders;
+begin
+    if current_role_of() not in ('yonetici', 'satis') then
+        raise exception 'yetkisiz: fırsattan emri yalnız yönetici/satış açar';
+    end if;
+    if p_qty is null or p_qty <= 0 then raise exception 'adet 0''dan büyük olmalı'; end if;
+    insert into production_orders
+        (item_id, product_name, qty, status, cat, note, source_deal_id, user_name)
+    values (p_item_id, p_product_name, p_qty, 'planned', 'CRM', p_note, p_deal_id, p_user)
+    returning * into v_ord;
+    return v_ord;
+end $$;
+create index if not exists production_orders_deal_idx
+    on production_orders (source_deal_id) where source_deal_id <> '';
 
 -- ─── Havuz testi istasyonu ─────────────────────────────────────────────────
 create table if not exists pool_tests (

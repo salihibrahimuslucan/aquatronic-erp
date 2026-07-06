@@ -2,12 +2,18 @@
 // Netlify aquatronic-v7.html karşılıkları (active / planned / pool).
 import {
     getActiveRuns, getProductionArchive, startProduction, completeRun,
-    getPlans, addPlan, setPlanPdf, deletePlan,
+    getPlans, addPlan, setPlanPdf, deletePlan, startPlan,
     getPoolItems, addPoolTest, updatePoolTest, deletePoolTest, getItems,
 } from '../data/store.js';
 import { isCloud, uploadFile, publicFileUrl } from '../data/supabase.js';
 import { esc, fmtWhen } from './helpers.js';
-import { showToast } from '../main.js';
+import { showToast, salesAllowed } from '../main.js';
+
+// CRM fırsatına geri-bağ rozeti (yalnız CRM görebilen roller — üretim görmez).
+function dealBadge(dealId) {
+    if (!dealId || !salesAllowed()) return '';
+    return `<a class="crm-badge" href="#/crm/deal/${esc(dealId)}" title="Bağlı CRM fırsatı">🏭 ${esc(dealId)}</a>`;
+}
 
 function setHeader(t, s) {
     document.getElementById('page-title-text').textContent = t;
@@ -42,7 +48,7 @@ export const activeView = {
                         <table><thead><tr><th>Ürün</th><th>Adet</th><th>Başlangıç</th><th>Not</th><th></th></tr></thead>
                         <tbody>${runs.length ? runs.map((r) => `
                             <tr>
-                                <td class="strong">${esc(r.name)}</td>
+                                <td class="strong">${esc(r.name)} ${dealBadge(r.dealId)}</td>
                                 <td class="mono">${r.qty}</td>
                                 <td class="mono">${esc(fmtWhen(r.startedAt))}</td>
                                 <td>${pdfIcon(r.pdf)}${esc(r.note || '—')}</td>
@@ -123,7 +129,7 @@ export const plannedView = {
                     <div class="planned-grid">${plans.length ? plans.map((p) => `
                         <div class="planned-card bg-glass">
                             <div class="planned-body">
-                                <div class="planned-name">${esc(p.name)}</div>
+                                <div class="planned-name">${esc(p.name)} ${p.qty > 1 ? `<span class="mono planned-qty">×${p.qty}</span>` : ''} ${dealBadge(p.dealId)}</div>
                                 <div class="planned-cat">${esc(p.cat || '—')}</div>
                                 <p class="planned-note">${esc(p.note || '')}</p>
                                 ${p.pdf
@@ -131,7 +137,10 @@ export const plannedView = {
                                     : (cloud ? `<button class="planned-pdf planned-pdf-add" data-attach="${p.id}">📎 PDF ekle</button>` : '')}
                                 <div class="planned-meta mono">${esc(fmtWhen(p.createdAt))} · ${esc(p.user || '')}</div>
                             </div>
-                            <button class="planned-del" data-del="${p.id}" title="Sil">✕</button>
+                            <div class="planned-actions">
+                                <button class="btn btn-primary btn-sm" data-start="${p.id}" title="Aktif üretime al">▶ Üretime Al</button>
+                                <button class="planned-del" data-del="${p.id}" title="Sil">✕</button>
+                            </div>
                         </div>`).join('') : '<div class="empty-state"><h3>Plan yok — "Yeni Plan" ile ekleyin.</h3></div>'}
                     </div>
                     ${cloud ? '<input type="file" id="attach-pdf" accept="application/pdf" hidden>' : ''}
@@ -151,6 +160,11 @@ export const plannedView = {
             });
             pane.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', async () => {
                 await deletePlan(Number(b.dataset.del)); draw();
+            }));
+            pane.querySelectorAll('[data-start]').forEach((b) => b.addEventListener('click', async () => {
+                const run = await startPlan(Number(b.dataset.start));
+                showToast(run ? `Üretime alındı: ${run.name} ×${run.qty}` : 'Emir bulunamadı');
+                draw();
             }));
 
             // Var olan karta sonradan PDF bağlama (gizli ortak file input)
