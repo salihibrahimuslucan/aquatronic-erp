@@ -158,6 +158,14 @@ tr.row-critical td:nth-child(2) { color: var(--color-pink); font-weight: 600; }
 .deal-order-name { flex: 1; font-size: 0.85rem; }
 .modal-hint { font-size: 0.78rem; color: var(--text-secondary); margin: 0 0 12px; line-height: 1.4; }
 
+/* Seri no özet satırı (ürün detayı) */
+.serial-kpi-row { display: flex; gap: 10px; flex-wrap: wrap; margin: 4px 0 14px; }
+.serial-kpi {
+    font-size: 0.74rem; padding: 3px 10px; border-radius: 999px;
+    background: rgba(255,255,255,0.04); border: 1px solid var(--border-glass);
+}
+.serial-kpi b { font-family: 'JetBrains Mono', monospace; }
+
 /* Komponent kaynağı rozeti (sourcing köprüsü) */
 .src-badge {
     display: inline-flex; align-items: center; gap: 4px; margin-top: 8px;

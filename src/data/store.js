@@ -140,6 +140,7 @@ function seed() {
         plans: [],                      // {id, name, cat, note, createdAt, user}
         productionArchive: Array.isArray(opsJson.productionArchive) ? opsJson.productionArchive.slice() : [],
         activityLog: Array.isArray(opsJson.activityLog) ? opsJson.activityLog.slice() : [],
+        serials: [],                    // {id, serial, itemId, productName, orderId, status, createdAt}
     };
 }
 
@@ -191,6 +192,7 @@ async function loadCloudState() {
             ts: new Date(a.created_at).getTime(), user: a.user_name,
             action: a.action, target: a.target, details: a.details,
         })),
+        serials: [],   // seri kayıtları ürün detayında talep üzerine çekilir (getSerialsForItem)
     };
     for (const b of boms) {
         byId.get(String(b.product_id))?.bom.push({ itemId: b.component_id, qty: b.qty });
@@ -519,6 +521,49 @@ export async function startProduction(productName, qty, note = '') {
     return run;
 }
 
+// Üretilen her cihaza seri no: AQ-<emir>-NNN (emre bağlı, izlenebilir).
+async function generateSerials(run) {
+    const n = Number(run.qty) || 0;
+    if (n <= 0) return;
+    const item = state.items.find((i) => i.name === run.name);
+    const cloudOrder = (typeof run.id === 'number' && run.id < 1e12) ? run.id : null;
+    const rows = [];
+    for (let i = 1; i <= n; i++) {
+        rows.push({ serial: `AQ-${run.id}-${String(i).padStart(3, '0')}`,
+            item_id: item?.id ?? null, product_name: run.name, order_id: cloudOrder, status: 'produced' });
+    }
+    if (isCloud()) {
+        try { unwrap(await supabase.from('unit_serials').insert(rows).select('id')); }
+        catch (e) { console.error('seri no yazılamadı:', e.message); }
+    } else {
+        for (const r of rows) state.serials.push({ id: `${nowTs()}-${r.serial}`, serial: r.serial,
+            itemId: r.item_id, productName: r.product_name, orderId: r.order_id, status: 'produced', createdAt: nowTs() });
+    }
+}
+
+export async function getSerialsForItem(itemId) {
+    if (isCloud()) {
+        const data = unwrap(await supabase.from('unit_serials').select('*')
+            .eq('item_id', itemId).order('created_at', { ascending: false }).limit(400));
+        return data.map((r) => ({ id: r.id, serial: r.serial, status: r.status,
+            orderId: r.order_id, productName: r.product_name, note: r.note ?? '',
+            createdAt: new Date(r.created_at).getTime() }));
+    }
+    await ensureState();
+    return (state.serials ?? []).filter((s) => String(s.itemId) === String(itemId))
+        .sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export async function updateSerialStatus(id, status) {
+    if (isCloud()) {
+        unwrap(await supabase.from('unit_serials').update({ status }).eq('id', id).select('id'));
+    } else {
+        await ensureState();
+        const s = (state.serials ?? []).find((x) => String(x.id) === String(id));
+        if (s) s.status = status;
+    }
+}
+
 export async function completeRun(runId) {
     await ensureState();
     const idx = state.activeRuns.findIndex((r) => r.id === runId);
@@ -538,6 +583,7 @@ export async function completeRun(runId) {
                 if (comp && consume > 0) logActivity('production-consume', comp.name, `−${consume} (${run.name} ×${run.qty})`);
             }
         }
+        await generateSerials(run);     // her üretilen cihaza seri no
         logActivity('production-done', run.name, `${run.qty} adet tamamlandı → stok`);
         invalidate();   // adetler DB'de değişti — bir sonraki ekran taze çeker
         return run;
@@ -562,6 +608,7 @@ export async function completeRun(runId) {
             }
         }
     }
+    await generateSerials(run);     // her üretilen cihaza seri no
     logActivity('production-done', run.name, `${run.qty} adet tamamlandı → stok`);
     persist();
     return run;

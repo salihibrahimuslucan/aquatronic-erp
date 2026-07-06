@@ -5,6 +5,7 @@ import {
     stockIn, stockOut, saveProduct, stockStatus, stockStatusLabel,
     getBomDetail, setBomRow, removeBomRow, getWhereUsed,
     addProduct, setArchived, applyCount, getMissingPhotoItems,
+    getSerialsForItem, updateSerialStatus,
 } from '../data/store.js';
 import { isCloud, uploadFile, publicFileUrl, removeFile } from '../data/supabase.js';
 import {
@@ -15,6 +16,13 @@ import { showToast } from '../main.js';
 
 const MAX_RENDER = 200;          // grid'e tek seferde en çok kart
 const activeSub = {};            // groupId -> seçili alt-sekme (oturumda hatırla)
+
+// Seri no durumu → etiket + pil sınıfı
+const SERIAL_META = {
+    produced: { label: 'Üretildi', cls: 'stage-prod' },
+    tested:   { label: 'Test Edildi', cls: 'stage-await' },
+    shipped:  { label: 'Sevk Edildi', cls: 'stage-won' },
+};
 
 function setHeader(title, subtitle) {
     document.getElementById('page-title-text').textContent = title;
@@ -305,8 +313,8 @@ export const stockDetailView = {
         const draw = async () => {
             const st = stockStatus(p);
             const url = photoUrl(p);
-            const [bomRows, whereUsed, allItems] = await Promise.all([
-                getBomDetail(p.id), getWhereUsed(p.id), getItems(),
+            const [bomRows, whereUsed, allItems, serials] = await Promise.all([
+                getBomDetail(p.id), getWhereUsed(p.id), getItems(), getSerialsForItem(p.id),
             ]);
             pane.innerHTML = `
                 <div class="detail-actions">
@@ -427,6 +435,30 @@ export const stockDetailView = {
                                 </tbody></table>
                             </div>
                         </div>` : ''}
+                        ${serials.length ? `
+                        <div class="grid-card bg-glass margin-top-lg">
+                            <div class="card-header"><h2>Seri Numaraları <span class="count-chip">${serials.length}</span></h2>
+                            <p class="card-subtitle">Bu üründen üretilen cihaz birimleri — her üretim tamamlanınca otomatik atanır.</p></div>
+                            <div class="serial-kpi-row">
+                                ${['produced', 'tested', 'shipped'].map((s) => {
+                                    const n = serials.filter((x) => x.status === s).length;
+                                    return `<span class="serial-kpi ${SERIAL_META[s].cls}">${SERIAL_META[s].label}: <b>${n}</b></span>`;
+                                }).join('')}
+                            </div>
+                            <div class="table-container small-table">
+                                <table><thead><tr><th>Seri No</th><th>Emir</th><th>Tarih</th><th>Durum</th><th></th></tr></thead>
+                                <tbody>${serials.slice(0, 60).map((s) => `
+                                    <tr>
+                                        <td class="mono strong">${esc(s.serial)}</td>
+                                        <td class="mono">${s.orderId ? 'PO-' + esc(s.orderId) : '—'}</td>
+                                        <td class="mono">${esc(fmtWhen(s.createdAt))}</td>
+                                        <td><span class="stage-pill ${SERIAL_META[s.status]?.cls ?? ''}">${SERIAL_META[s.status]?.label ?? s.status}</span></td>
+                                        <td>${s.status !== 'shipped' ? `<button class="btn btn-outline btn-sm" data-serial-ship="${esc(s.id)}">Sevk Et</button>` : ''}</td>
+                                    </tr>`).join('')}
+                                </tbody></table>
+                            </div>
+                            ${serials.length > 60 ? `<p class="grid-more">${serials.length - 60} seri daha (ilk 60 gösteriliyor).</p>` : ''}
+                        </div>` : ''}
                         <div class="grid-card bg-glass margin-top-lg">
                             <div class="card-header"><h2>Hareket Geçmişi</h2><p class="card-subtitle">Bu ürünün son stok giriş/çıkışları.</p></div>
                             <div class="table-container small-table">
@@ -466,6 +498,10 @@ export const stockDetailView = {
                 });
                 showToast('Kaydedildi.'); draw();
             });
+            pane.querySelectorAll('[data-serial-ship]').forEach((b) => b.addEventListener('click', async () => {
+                await updateSerialStatus(b.dataset.serialShip, 'shipped');
+                showToast('Sevk edildi olarak işaretlendi.'); draw();
+            }));
             pane.querySelector('#btn-archive').addEventListener('click', async () => {
                 await setArchived(p.id, !p.archived);
                 showToast(p.archived ? `Arşivlendi: ${p.name}` : `Geri alındı: ${p.name}`);
