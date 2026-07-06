@@ -128,3 +128,12 @@ tr.row-critical td:nth-child(2) { color: var(--color-pink); font-weight: 600; }
     cursor: pointer; font-size: 0.8rem; line-height: 1;
 }
 .planned-del { position: absolute; top: 8px; right: 8px; }
+
+/* Araç çubuğu buton grubu (katalog başlığı, sayım/arşiv, detay kaydet+arşivle) */
+.toolbar-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+.control-row .toolbar-actions, .card-header .toolbar-actions { margin-top: 0; }
+
+/* Sayım modu girişleri */
+.cnt-input { width: 110px; background: var(--bg-glass-card); color: var(--text-primary);
+    border: 1px solid var(--border-glass); border-radius: 8px; padding: 6px 10px;
+    font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; }

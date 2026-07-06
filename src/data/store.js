@@ -156,18 +156,23 @@ export function stockStatusLabel(status) {
     return status === 'critical' ? 'Kritik' : status === 'low' ? 'Azalıyor' : 'Yeterli';
 }
 
-export async function getItems() { return ensureState().items; }
+// Varsayılan: arşivdekiler hariç (katalog/seçim listeleri için doğru olan bu).
+export async function getItems(includeArchived = false) {
+    ensureState();
+    return includeArchived ? state.items : state.items.filter((i) => !i.archived);
+}
 
 export async function getItemById(id) {
     ensureState();
     return state.items.find((i) => i.id === Number(id) || String(i.id) === String(id)) ?? null;
 }
 
-// Bir alt-sekme match'ine göre ürünleri süz
-function matchItems(match) {
+// Bir alt-sekme match'ine göre ürünleri süz (archived=true → yalnız arşiv)
+function matchItems(match, archived = false) {
     ensureState();
     if (!match) return [];
     return state.items.filter((i) => {
+        if (!!i.archived !== archived) return false;
         if (match.family && i.family !== match.family) return false;
         if (match.cats && !match.cats.includes(i.cat)) return false;
         return true;
@@ -175,10 +180,10 @@ function matchItems(match) {
 }
 
 // Bir stok-grubunun (finished/production/cable/pano/motor) tüm alt-sekmeleri + sayıları
-export async function getStockGroup(groupId) {
+export async function getStockGroup(groupId, archived = false) {
     const g = getGroup(groupId);
     if (!g || g.type !== 'stock') return { group: g, subs: [] };
-    const subs = g.subs.map((s) => ({ ...s, items: matchItems(s.match) }));
+    const subs = g.subs.map((s) => ({ ...s, items: matchItems(s.match, archived) }));
     return { group: g, subs };
 }
 
@@ -217,6 +222,61 @@ export async function saveProduct(id, patch) {
     logActivity('product-edit', p.name, oldQty !== p.qty ? `stok ${oldQty} → ${p.qty}` : 'bilgi güncellendi');
     persist();
     return p;
+}
+
+// ─── Ürün ekle / arşivle / sayım ───────────────────────────────────────────
+// Silme YOK: arşivlenen kalem katalog+KPI dışına çıkar, geri alınabilir.
+export async function addProduct({ name, family, cat = '', critical = 0, note = '', photo = '' }) {
+    ensureState();
+    const trimmed = (name ?? '').trim();
+    if (!trimmed) return { ok: false, error: 'Ürün adı boş olamaz.' };
+    if (state.items.some((i) => i.name.toLowerCase() === trimmed.toLowerCase())) {
+        return { ok: false, error: 'Bu adla bir ürün zaten kayıtlı.' };
+    }
+    const maxId = state.items.reduce((m, i) => Math.max(m, Number(i.id) || 0), 0);
+    const photoName = String(photo ?? '').trim().replace(/^\/+/, '').replace(/^foto\//i, '');
+    const item = normalizeItem({
+        id: maxId + 1, name: trimmed, family, cat, qty: 0,
+        critical: parseInt(critical, 10) || 0, note: note ?? '',
+        photo: photoName ? `foto/${photoName}` : null,
+    }, maxId + 1);
+    state.items.push(item);
+    logActivity('product-add', item.name, `yeni ürün (${family}${cat ? ' / ' + cat : ''})`);
+    persist();
+    return { ok: true, item };
+}
+
+export async function setArchived(id, archived) {
+    const p = await getItemById(id);
+    if (!p) return null;
+    p.archived = !!archived;
+    logActivity(archived ? 'product-archive' : 'product-unarchive', p.name,
+        archived ? 'arşive taşındı (katalog/KPI dışı)' : 'arşivden geri alındı');
+    persist();
+    return p;
+}
+
+// Sayım Modu: [{id, counted}] — kayıtlı adetten farklı olanlar tek seferde
+// düzeltilir; her düzeltme ürün history + deftere "Sayım düzeltmesi" yazar.
+export async function applyCount(entries) {
+    ensureState();
+    const applied = [];
+    for (const { id, counted } of entries) {
+        const p = state.items.find((i) => String(i.id) === String(id));
+        const n = parseInt(counted, 10);
+        if (!p || !Number.isFinite(n) || n < 0 || n === p.qty) continue;
+        const old = p.qty;
+        const diff = n - old;
+        p.qty = n;
+        p.history.unshift({
+            type: diff > 0 ? 'in' : 'out', qty: Math.abs(diff), date: trDate(),
+            note: `Sayım düzeltmesi (${old} → ${n})`, ts: nowTs(), user: _currentUser,
+        });
+        logActivity('count-adjust', p.name, `${old} → ${n} (fark ${diff > 0 ? '+' : ''}${diff})`);
+        applied.push({ id: p.id, name: p.name, old, next: n, diff });
+    }
+    if (applied.length) persist();
+    return applied;
 }
 
 // ─── BOM (ürün reçetesi) ───────────────────────────────────────────────────
@@ -340,9 +400,10 @@ export async function getActivityLog() {
 // ─── KPI'lar + genel bakış ─────────────────────────────────────────────────
 export async function getKpis() {
     ensureState();
-    const critical = state.items.filter((i) => stockStatus(i) === 'critical');
+    const live = state.items.filter((i) => !i.archived);
+    const critical = live.filter((i) => stockStatus(i) === 'critical');
     return {
-        totalItems: state.items.length,
+        totalItems: live.length,
         criticalCount: critical.length,
         activeCount: state.activeRuns.length,
         outsourceCount: state.dis.length,
@@ -351,7 +412,7 @@ export async function getKpis() {
 export async function getCriticalItems() {
     ensureState();
     return state.items
-        .filter((i) => stockStatus(i) !== 'ok')
+        .filter((i) => !i.archived && stockStatus(i) !== 'ok')
         .sort((a, b) => (a.qty - a.critical) - (b.qty - b.critical));
 }
 

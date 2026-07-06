@@ -4,6 +4,7 @@ import {
     getGroup, getStockGroup, getItemById, getItems,
     stockIn, stockOut, saveProduct, stockStatus, stockStatusLabel,
     getBomDetail, setBomRow, removeBomRow, getWhereUsed,
+    addProduct, setArchived, applyCount,
 } from '../data/store.js';
 import { photoUrl, placeholderHtml, statusPillClass, esc, fmtWhen, iconForFamily } from './helpers.js';
 import { showToast } from '../main.js';
@@ -19,78 +20,233 @@ function setHeader(title, subtitle) {
 export const stockGroupView = {
     title: '', subtitle: '',
     async render(pane, { groupId }) {
-        const { group, subs } = await getStockGroup(groupId);
-        if (!group) { pane.innerHTML = '<p class="empty-row">Grup bulunamadı.</p>'; return; }
-        setHeader(group.label, 'Foto-öncelikli ürün kataloğu ve anlık stok hareketleri.');
+        const g = getGroup(groupId);
+        if (!g) { pane.innerHTML = '<p class="empty-row">Grup bulunamadı.</p>'; return; }
+        let mode = 'grid';   // grid | count | archive
 
-        if (!activeSub[groupId] || !subs.some((s) => s.key === activeSub[groupId])) {
-            activeSub[groupId] = subs[0]?.key ?? null;
-        }
-        const multi = subs.length > 1;
-
-        pane.innerHTML = `
-            <div class="control-row">
-                <div class="family-tabs" id="sub-tabs">
-                    ${multi ? subs.map((s) => `
-                        <button class="family-tab ${s.key === activeSub[groupId] ? 'active' : ''}" data-sub="${esc(s.key)}">
-                            ${esc(s.label)} <span class="tab-count">${s.items.length}</span>
-                        </button>`).join('') : ''}
-                </div>
-                <div class="search-box-wrap">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="search-icon"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                    <input type="text" id="stock-search" placeholder="Ürün adı veya Türkçe etiket ara...">
-                </div>
-            </div>
-            <div class="product-grid" id="grid"></div>`;
-
-        const grid = pane.querySelector('#grid');
-        const searchInput = pane.querySelector('#stock-search');
-
-        const draw = () => {
-            const q = searchInput.value.trim().toLowerCase();
-            let list;
-            if (q) {
-                list = subs.flatMap((s) => s.items).filter((i) =>
-                    i.name.toLowerCase().includes(q) || (i.tr || '').toLowerCase().includes(q));
-            } else {
-                list = subs.find((s) => s.key === activeSub[groupId])?.items ?? [];
-            }
-            const shown = list.slice(0, MAX_RENDER);
-            grid.innerHTML = shown.length
-                ? shown.map(renderCard).join('') + (list.length > MAX_RENDER
-                    ? `<p class="grid-more">${list.length - MAX_RENDER} kalem daha — aramayla daralt.</p>` : '')
-                : '<div class="empty-state"><h3>Kayıt yok</h3></div>';
+        const paint = async () => {
+            if (mode === 'count') return paintCount();
+            if (mode === 'archive') return paintArchive();
+            return paintGrid();
         };
 
-        pane.querySelectorAll('#sub-tabs .family-tab').forEach((btn) => {
-            btn.addEventListener('click', () => {
-                activeSub[groupId] = btn.dataset.sub;
-                pane.querySelectorAll('#sub-tabs .family-tab').forEach((b) => b.classList.toggle('active', b === btn));
-                searchInput.value = '';
-                draw();
-            });
-        });
-        searchInput.addEventListener('input', draw);
+        // ── Katalog (grid) modu ─────────────────────────────────────────────
+        async function paintGrid() {
+            const { group, subs } = await getStockGroup(groupId);
+            const { subs: archivedSubs } = await getStockGroup(groupId, true);
+            const archivedCount = archivedSubs.reduce((n, s) => n + s.items.length, 0);
+            setHeader(group.label, 'Foto-öncelikli ürün kataloğu ve anlık stok hareketleri.');
 
-        grid.addEventListener('click', async (e) => {
-            const adj = e.target.closest('.btn-card-adjust');
-            if (adj) {
-                e.stopPropagation();
-                const card = adj.closest('[data-item-id]');
-                const id = card.dataset.itemId;
-                const item = adj.classList.contains('adjust-plus')
-                    ? await stockIn(id, 1) : await stockOut(id, 1);
-                if (item) {
-                    showToast(`${item.name}: stok ${item.qty}`);
-                    card.outerHTML = renderCard(item);
-                }
-                return;
+            if (!activeSub[groupId] || !subs.some((s) => s.key === activeSub[groupId])) {
+                activeSub[groupId] = subs[0]?.key ?? null;
             }
-            const card = e.target.closest('[data-item-id]');
-            if (card) location.hash = `#/stok/urun/${card.dataset.itemId}`;
-        });
+            const multi = subs.length > 1;
+            const curSub = () => subs.find((s) => s.key === activeSub[groupId]) ?? subs[0];
 
-        draw();
+            pane.innerHTML = `
+                <div class="control-row">
+                    <div class="family-tabs" id="sub-tabs">
+                        ${multi ? subs.map((s) => `
+                            <button class="family-tab ${s.key === activeSub[groupId] ? 'active' : ''}" data-sub="${esc(s.key)}">
+                                ${esc(s.label)} <span class="tab-count">${s.items.length}</span>
+                            </button>`).join('') : ''}
+                    </div>
+                    <div class="search-box-wrap">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="search-icon"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                        <input type="text" id="stock-search" placeholder="Ürün adı veya Türkçe etiket ara...">
+                    </div>
+                    <div class="toolbar-actions">
+                        <button class="btn btn-primary btn-sm" id="btn-add-product">＋ Ürün</button>
+                        <button class="btn btn-outline btn-sm" id="btn-count-mode">Sayım</button>
+                        <button class="btn btn-outline btn-sm" id="btn-archive-mode" ${archivedCount ? '' : 'disabled'}>Arşiv (${archivedCount})</button>
+                    </div>
+                </div>
+                <div class="start-form" id="add-form" hidden>
+                    <input type="text" id="af-name" placeholder="Ürün adı *">
+                    <input type="number" id="af-crt" value="0" min="0" title="Kritik seviye" style="max-width:110px">
+                    <input type="text" id="af-note" placeholder="Not (opsiyonel)">
+                    <input type="text" id="af-photo" placeholder="Foto dosya adı (public/foto altına konur, ör. 99.jpg)">
+                    <button class="btn btn-primary" id="af-go">Ekle → ${esc(curSub()?.label ?? group.label)}</button>
+                </div>
+                <div class="product-grid" id="grid"></div>`;
+
+            const grid = pane.querySelector('#grid');
+            const searchInput = pane.querySelector('#stock-search');
+
+            const draw = () => {
+                const q = searchInput.value.trim().toLowerCase();
+                let list;
+                if (q) {
+                    list = subs.flatMap((s) => s.items).filter((i) =>
+                        i.name.toLowerCase().includes(q) || (i.tr || '').toLowerCase().includes(q));
+                } else {
+                    list = curSub()?.items ?? [];
+                }
+                const shown = list.slice(0, MAX_RENDER);
+                grid.innerHTML = shown.length
+                    ? shown.map(renderCard).join('') + (list.length > MAX_RENDER
+                        ? `<p class="grid-more">${list.length - MAX_RENDER} kalem daha — aramayla daralt.</p>` : '')
+                    : '<div class="empty-state"><h3>Kayıt yok</h3></div>';
+            };
+
+            pane.querySelectorAll('#sub-tabs .family-tab').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    activeSub[groupId] = btn.dataset.sub;
+                    pane.querySelectorAll('#sub-tabs .family-tab').forEach((b) => b.classList.toggle('active', b === btn));
+                    searchInput.value = '';
+                    pane.querySelector('#af-go').textContent = `Ekle → ${curSub()?.label ?? group.label}`;
+                    draw();
+                });
+            });
+            searchInput.addEventListener('input', draw);
+
+            grid.addEventListener('click', async (e) => {
+                const adj = e.target.closest('.btn-card-adjust');
+                if (adj) {
+                    e.stopPropagation();
+                    const card = adj.closest('[data-item-id]');
+                    const id = card.dataset.itemId;
+                    const item = adj.classList.contains('adjust-plus')
+                        ? await stockIn(id, 1) : await stockOut(id, 1);
+                    if (item) {
+                        showToast(`${item.name}: stok ${item.qty}`);
+                        card.outerHTML = renderCard(item);
+                    }
+                    return;
+                }
+                const card = e.target.closest('[data-item-id]');
+                if (card) location.hash = `#/stok/urun/${card.dataset.itemId}`;
+            });
+
+            // ＋ Ürün formu — aile/kategori aktif alt-sekmeden otomatik
+            const addForm = pane.querySelector('#add-form');
+            pane.querySelector('#btn-add-product').addEventListener('click', () => { addForm.hidden = !addForm.hidden; });
+            pane.querySelector('#af-go').addEventListener('click', async () => {
+                const m = curSub()?.match ?? {};
+                const res = await addProduct({
+                    name: pane.querySelector('#af-name').value,
+                    family: m.family ?? group.id,
+                    cat: m.cats?.[0] ?? '',
+                    critical: pane.querySelector('#af-crt').value,
+                    note: pane.querySelector('#af-note').value,
+                    photo: pane.querySelector('#af-photo').value,
+                });
+                if (!res.ok) { showToast(res.error); return; }
+                showToast(`Eklendi: ${res.item.name}`);
+                await paint();
+            });
+
+            pane.querySelector('#btn-count-mode').addEventListener('click', () => { mode = 'count'; paint(); });
+            const archBtn = pane.querySelector('#btn-archive-mode');
+            if (!archBtn.disabled) archBtn.addEventListener('click', () => { mode = 'archive'; paint(); });
+
+            draw();
+        }
+
+        // ── Sayım modu ──────────────────────────────────────────────────────
+        async function paintCount() {
+            const { group, subs } = await getStockGroup(groupId);
+            const rows = subs.flatMap((s) => s.items.map((i) => ({ sub: s.label, item: i })));
+            setHeader(`Sayım — ${group.label}`, 'Fiziksel sayım sonuçlarını girin; farklar tek seferde deftere yazılır.');
+
+            pane.innerHTML = `
+                <div class="grid-card bg-glass">
+                    <div class="card-header flex-row">
+                        <div>
+                            <h2>Sayım Modu <span class="count-chip">${rows.length} kalem</span></h2>
+                            <p class="card-subtitle">Sayılan adedi girin; boş bırakılan satıra DOKUNULMAZ. "Sayımı İşle" farkları
+                            "Sayım düzeltmesi" olarak ürün geçmişi + Hareket Defteri'ne yazar.</p>
+                        </div>
+                        <div class="toolbar-actions">
+                            <button class="btn btn-outline" id="cnt-cancel">Vazgeç</button>
+                            <button class="btn btn-primary" id="cnt-apply">Sayımı İşle</button>
+                        </div>
+                    </div>
+                    <div class="table-container">
+                        <table>
+                            <thead><tr><th>Ürün</th><th>Alt Grup</th><th>Kayıtlı</th><th>Sayılan</th><th>Fark</th></tr></thead>
+                            <tbody>
+                                ${rows.map(({ sub, item }) => `
+                                <tr>
+                                    <td class="strong">${esc(item.name)}</td>
+                                    <td class="mono" style="font-size:0.72rem;color:var(--text-muted)">${esc(sub)}</td>
+                                    <td class="mono">${item.qty}</td>
+                                    <td><input type="number" min="0" class="cnt-input" data-cnt-id="${item.id}" data-cnt-cur="${item.qty}" placeholder="—"></td>
+                                    <td class="mono cnt-diff" data-diff-for="${item.id}">—</td>
+                                </tr>`).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>`;
+
+            pane.querySelectorAll('.cnt-input').forEach((inp) => inp.addEventListener('input', () => {
+                const cell = pane.querySelector(`[data-diff-for="${inp.dataset.cntId}"]`);
+                const v = inp.value.trim();
+                if (v === '') { cell.textContent = '—'; cell.style.color = ''; return; }
+                const diff = (parseInt(v, 10) || 0) - Number(inp.dataset.cntCur);
+                cell.textContent = diff > 0 ? `+${diff}` : String(diff);
+                cell.style.color = diff === 0 ? 'var(--text-muted)' : (diff > 0 ? 'var(--color-green)' : 'var(--color-pink)');
+            }));
+
+            pane.querySelector('#cnt-cancel').addEventListener('click', () => { mode = 'grid'; paint(); });
+            pane.querySelector('#cnt-apply').addEventListener('click', async () => {
+                const entries = [...pane.querySelectorAll('.cnt-input')]
+                    .filter((i) => i.value.trim() !== '')
+                    .map((i) => ({ id: i.dataset.cntId, counted: i.value }));
+                if (!entries.length) { showToast('Sayılan adet girilmedi.'); return; }
+                const applied = await applyCount(entries);
+                showToast(applied.length
+                    ? `Sayım işlendi: ${applied.length} kalem düzeltildi (${entries.length - applied.length} fark yok).`
+                    : 'Girilen sayımlar kayıtlı adetlerle aynı — düzeltme gerekmedi.');
+                mode = 'grid';
+                paint();
+            });
+        }
+
+        // ── Arşiv modu ──────────────────────────────────────────────────────
+        async function paintArchive() {
+            const { group, subs } = await getStockGroup(groupId, true);
+            const rows = subs.flatMap((s) => s.items.map((i) => ({ sub: s.label, item: i })));
+            setHeader(`Arşiv — ${group.label}`, 'Arşivlenen kalemler katalog ve KPI dışıdır; geri alınabilir.');
+
+            pane.innerHTML = `
+                <div class="grid-card bg-glass">
+                    <div class="card-header flex-row">
+                        <div>
+                            <h2>Arşiv <span class="count-chip">${rows.length}</span></h2>
+                            <p class="card-subtitle">Silme yok — çıkarılan ürünler burada durur, "Geri Al" ile kataloğa döner.</p>
+                        </div>
+                        <button class="btn btn-outline" id="arch-back">← Kataloğa Dön</button>
+                    </div>
+                    <div class="table-container">
+                        <table>
+                            <thead><tr><th>Ürün</th><th>Alt Grup</th><th>Son Stok</th><th>Not</th><th></th></tr></thead>
+                            <tbody>
+                                ${rows.length ? rows.map(({ sub, item }) => `
+                                <tr>
+                                    <td class="strong" style="cursor:pointer" data-arch-goto="${item.id}">${esc(item.name)}</td>
+                                    <td class="mono" style="font-size:0.72rem;color:var(--text-muted)">${esc(sub)}</td>
+                                    <td class="mono">${item.qty}</td>
+                                    <td style="color:var(--text-secondary);font-size:0.75rem">${esc(item.note || '—')}</td>
+                                    <td><button class="btn btn-outline btn-sm" data-arch-restore="${item.id}">Geri Al</button></td>
+                                </tr>`).join('') : '<tr><td colspan="5" class="empty-row">Arşiv boş.</td></tr>'}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>`;
+
+            pane.querySelector('#arch-back').addEventListener('click', () => { mode = 'grid'; paint(); });
+            pane.querySelectorAll('[data-arch-restore]').forEach((b) => b.addEventListener('click', async () => {
+                const p = await setArchived(b.dataset.archRestore, false);
+                showToast(`Geri alındı: ${p?.name}`);
+                paint();
+            }));
+            pane.querySelectorAll('[data-arch-goto]').forEach((el) => el.addEventListener('click', () => {
+                location.hash = `#/stok/urun/${el.dataset.archGoto}`;
+            }));
+        }
+
+        await paint();
     },
 };
 
@@ -158,6 +314,7 @@ export const stockDetailView = {
                     <div class="detail-right">
                         <div class="grid-card bg-glass">
                             <span class="detail-cat-tag">${esc(p.family)}</span>
+                            ${p.archived ? '<span class="stage-pill stage-lost" style="margin-left:8px">ARŞİVDE</span>' : ''}
                             <h2 class="detail-name">${esc(p.name)}</h2>
                             <div class="detail-kpi-row">
                                 <div class="detail-kpi"><span class="lbl">Mevcut Stok</span><span class="val mono ${st === 'critical' ? 'text-pink' : ''}">${p.qty}</span></div>
@@ -175,7 +332,10 @@ export const stockDetailView = {
                                 </div>
                                 <div class="form-group"><label>Not</label><input type="text" id="e-note" value="${esc(p.note)}"></div>
                                 <div class="meta-mini">Kod/ID: #${p.id} · Arama etiketi: ${esc(p.tr || '—')}</div>
-                                <button class="btn btn-primary" id="btn-save">Bilgileri Kaydet</button>
+                                <div class="toolbar-actions">
+                                    <button class="btn btn-primary" id="btn-save">Bilgileri Kaydet</button>
+                                    <button class="btn btn-outline" id="btn-archive">${p.archived ? 'Arşivden Geri Al' : 'Arşivle'}</button>
+                                </div>
                             </div>
                         </div>
                         <div class="grid-card bg-glass margin-top-lg">
@@ -256,6 +416,11 @@ export const stockDetailView = {
                     note: pane.querySelector('#e-note').value,
                 });
                 showToast('Kaydedildi.'); draw();
+            });
+            pane.querySelector('#btn-archive').addEventListener('click', async () => {
+                await setArchived(p.id, !p.archived);
+                showToast(p.archived ? `Arşivlendi: ${p.name}` : `Geri alındı: ${p.name}`);
+                draw();
             });
             pane.querySelectorAll('[data-goto]').forEach((el) =>
                 el.addEventListener('click', () => { location.hash = `#/${el.dataset.goto}`; }));
