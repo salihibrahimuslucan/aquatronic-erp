@@ -1,11 +1,14 @@
-// CRM veri katmanı (Google Sheets v4 aynası) — SATIŞ tarafının TEK giriş noktası.
-// Bu modül yalnız satış build'ine (@sales → sales-on.js) girer; build:uretim
-// paketinde bu dosya da crm-snapshot.json da YER ALMAZ (müşteri/fiyat sızmaz).
+// CRM veri katmanı — Supabase (Faz 1: CRM buluta taşındı).
+// ÖNCE: veri hem pakete gömülü snapshot'tan hem yerel Flask API'sinden gelirdi.
+// ARTIK: müşteri/fiyat verisi PAKETE GİRMEZ (crm-snapshot.json importu kaldırıldı);
+// giriş sonrası Supabase'den RLS ile çekilir. Üretim rolü TEK satır bile göremez.
+// Dış imzalar aynı kaldı → görünümler (views/crm.js, overview.js) değişmedi.
 //
-// Yerel yazma API'si (tools/crm_api.py, port 5001) ayaktaysa canlı Sheet'ten
-// okunur ve yazma açılır; değilse pakete gömülü snapshot'a düşülür (salt-okur).
+// Kalıcılık: crm_deals / crm_activities / crm_lists (bkz. supabase/crm_schema.sql).
+// Sheets aynası (Salih'in vizyonu "işledikçe Sheets'e yansısın") artık ayrı bir
+// senkron işi olacak (Supabase → Sheets); tarayıcı doğrudan Sheets'e yazamaz.
 
-import crmJson from './crm-snapshot.json';
+import { supabase, isCloud } from './supabase.js';
 import { crmDeals as sampleCrmDeals } from './sample-data.js';
 
 export function normalizeStage(stage) { return (stage ?? '').replace(/\s*\/\s*/g, ' / ').trim(); }
@@ -18,69 +21,129 @@ export function parseCrmMoney(str) {
     const n = Number(clean);
     return clean && Number.isFinite(n) ? n : null;
 }
-function normalizeDeal(raw, source) { return { ...raw, stage: normalizeStage(raw.stage), source }; }
 
-const CRM_API = 'http://127.0.0.1:5001';
-let _crmCache = null;           // { data, live, at }
-const CRM_TTL_MS = 60_000;      // canlı veriyi 60 sn önbellekle; yazmalar refreshCrm() çağırır
-
-async function fetchLiveCrm() {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 4000);
-    try {
-        const res = await fetch(`${CRM_API}/api/crm`, { signal: ctrl.signal });
-        const j = await res.json();
-        if (!j.ok) throw new Error(j.error || 'CRM API hatası');
-        return j;
-    } finally { clearTimeout(t); }
-}
-
-export function refreshCrm() { _crmCache = null; }
-export function isCrmLive() { return _crmCache?.live ?? false; }
-
-function shapeCrm(raw, live) {
+// snake_case (DB) ↔ camelCase (UI) eşlemesi — Sheets v4 kolon düzeni korunur
+const DEAL_TO_DB = {
+    id: 'id', company: 'company', project: 'project', country: 'country', contact: 'contact',
+    email: 'email', product: 'product', owner: 'owner', stage: 'stage', dealValue: 'deal_value',
+    paidValue: 'paid_value', shipping: 'shipping', lastContact: 'last_contact',
+    nextAction: 'next_action', nextDate: 'next_date', latest: 'latest', bucket: 'bucket',
+};
+function rowToDeal(r) {
     return {
-        pipeline: raw.pipeline.map((d) => normalizeDeal(d, 'pipeline')),
-        completed: raw.completed.map((d) => normalizeDeal(d, 'completed')),
-        lost: raw.lost.map((d) => normalizeDeal(d, 'lost')),
-        activityLog: raw.activityLog,
-        lists: raw.lists,
-        fetchedAt: live ? `canlı · ${new Date().toLocaleTimeString('tr-TR')}` : (raw.fetchedAt ?? null),
-        live,
+        id: r.id, company: r.company, project: r.project, country: r.country, contact: r.contact,
+        email: r.email, product: r.product, owner: r.owner, stage: normalizeStage(r.stage),
+        dealValue: r.deal_value ?? '', paidValue: r.paid_value ?? '', shipping: r.shipping ?? '',
+        lastContact: r.last_contact ?? '', nextAction: r.next_action ?? '', nextDate: r.next_date ?? '',
+        latest: r.latest ?? '', source: r.bucket,
     };
 }
+function dealToRow(d) {
+    const row = {};
+    for (const [k, v] of Object.entries(d)) if (DEAL_TO_DB[k] !== undefined) row[DEAL_TO_DB[k]] = v;
+    return row;
+}
+function rowToActivity(r) {
+    return {
+        date: r.date ?? '', dealId: r.deal_id ?? '', company: r.company ?? '', contact: r.contact ?? '',
+        direction: r.direction ?? '', channel: r.channel ?? '', summary: r.summary ?? '', by: r.by_who ?? '',
+    };
+}
+const EMPTY_LISTS = { Stage: [], Source: [], Owner: [], Channel: [], Direction: [], 'Next Action': [] };
+
+let _crmCache = null;           // { data, live, at }
+const CRM_TTL_MS = 30_000;      // 30 sn önbellek; yazmalar refreshCrm() çağırır
+export function refreshCrm() { _crmCache = null; }
+export function isCrmLive() { return isCloud(); }
+
+function pgThrow(error) { if (error) throw new Error(error.message); }
 
 export async function getCrm() {
     if (_crmCache && (Date.now() - _crmCache.at) < CRM_TTL_MS) return _crmCache.data;
-    let data;
-    try {
-        data = shapeCrm(await fetchLiveCrm(), true);
-    } catch {
-        if (!crmJson) {
-            return { pipeline: sampleCrmDeals, completed: [], lost: [], activityLog: [],
-                lists: { Stage: [], 'Next Action': [], Owner: [], Channel: [], Direction: [] }, live: false };
-        }
-        data = shapeCrm(crmJson, false);
+
+    // Bulut yoksa (dev/localStorage) — SAHTE örnek veri; gerçek müşteri verisi pakette yok
+    if (!isCloud()) {
+        const data = {
+            pipeline: sampleCrmDeals.map((d) => ({ ...d, stage: normalizeStage(d.stage), source: 'pipeline' })),
+            completed: [], lost: [], activityLog: [], lists: EMPTY_LISTS, fetchedAt: null, live: false,
+        };
+        _crmCache = { data, live: false, at: Date.now() };
+        return data;
     }
-    _crmCache = { data, live: data.live, at: Date.now() };
+
+    const [dealsRes, actsRes, listsRes] = await Promise.all([
+        supabase.from('crm_deals').select('*').order('id'),
+        supabase.from('crm_activities').select('*').order('id', { ascending: false }),
+        supabase.from('crm_lists').select('*').order('position'),
+    ]);
+    pgThrow(dealsRes.error); pgThrow(actsRes.error); pgThrow(listsRes.error);
+
+    const deals = (dealsRes.data ?? []).map(rowToDeal);
+    const lists = { ...EMPTY_LISTS };
+    for (const r of listsRes.data ?? []) (lists[r.kind] ??= []).push(r.value);
+
+    const data = {
+        pipeline: deals.filter((d) => d.source === 'pipeline'),
+        completed: deals.filter((d) => d.source === 'completed'),
+        lost: deals.filter((d) => d.source === 'lost'),
+        activityLog: (actsRes.data ?? []).map(rowToActivity),
+        lists,
+        fetchedAt: `bulut · ${new Date().toLocaleTimeString('tr-TR')}`,
+        live: true,
+    };
+    _crmCache = { data, live: true, at: Date.now() };
     return data;
 }
 
-async function crmPost(method, path, body) {
-    const res = await fetch(`${CRM_API}${path}`, {
-        method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    });
-    const j = await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status}` }));
-    if (!j.ok) throw new Error(j.error || `HTTP ${res.status}`);
+export async function crmAddDeal(deal) {
+    if (!isCloud()) throw new Error('CRM bulut modunda değil');
+    const row = dealToRow(deal);
+    if (!row.id || !row.company) throw new Error('id ve company zorunlu');
+    row.bucket = row.bucket || 'pipeline';
+    const { error } = await supabase.from('crm_deals').insert(row);
+    if (error) {
+        if (/duplicate key|already exists|23505/i.test(error.message)) throw new Error(`ID zaten var: ${row.id}`);
+        throw new Error(error.message);
+    }
+    // Opsiyonel açılış aktivitesi (add_deal paritesi)
+    if (deal.logSummary) {
+        await supabase.from('crm_activities').insert({
+            deal_id: row.id, date: row.last_contact || '', company: row.company, contact: row.contact || '',
+            direction: 'Outbound', channel: 'ERP', summary: deal.logSummary, by_who: row.owner || '',
+        });
+    }
     refreshCrm();
-    return j;
+    return { ok: true };
 }
 
-export async function crmAddDeal(deal) { return crmPost('POST', '/api/crm/deal', deal); }
 export async function crmUpdateDeal(id, patch) {
-    return crmPost('PUT', `/api/crm/deal/${encodeURIComponent(id)}`, patch);
+    if (!isCloud()) throw new Error('CRM bulut modunda değil');
+    const row = dealToRow(patch); delete row.id;
+    const { error } = await supabase.from('crm_deals').update(row).eq('id', id);
+    if (error) throw new Error(error.message);
+    refreshCrm();
+    return { ok: true };
 }
-export async function crmAddActivity(entry) { return crmPost('POST', '/api/crm/log', entry); }
+
+export async function crmAddActivity(entry) {
+    if (!isCloud()) throw new Error('CRM bulut modunda değil');
+    if (!entry.dealId || !entry.summary) throw new Error('dealId ve summary zorunlu');
+    const { error } = await supabase.from('crm_activities').insert({
+        deal_id: entry.dealId, date: entry.date || '', company: entry.company || '', contact: entry.contact || '',
+        direction: entry.direction || 'Outbound', channel: entry.channel || 'ERP',
+        summary: entry.summary, by_who: entry.by || '',
+    });
+    if (error) throw new Error(error.message);
+    // Sheet iş akışı paritesi: son temas = Latest punchline + Last Contact tarihi
+    if (entry.updateLatest) {
+        await supabase.from('crm_deals')
+            .update({ last_contact: entry.date || '', latest: entry.summary })
+            .eq('id', entry.dealId);
+    }
+    refreshCrm();
+    return { ok: true };
+}
+
 export async function getDealById(id) {
     const crm = await getCrm();
     return [...crm.pipeline, ...crm.completed, ...crm.lost].find((d) => d.id === id) ?? null;
@@ -98,8 +161,10 @@ export function isOverdue(dateStr) {
     return d < today;
 }
 
-// Genel Bakış KPI'sı: açık fırsat sayısı (canlı varsa canlı, yoksa snapshot).
+// Genel Bakış KPI'sı: açık fırsat sayısı. Üretim rolünde RLS boş döner → 0 (sızıntı yok).
 export async function getOpenOpportunityCount() {
-    const crm = await getCrm();
-    return crm.pipeline.length;
+    try {
+        const crm = await getCrm();
+        return crm.pipeline.length;
+    } catch { return 0; }
 }

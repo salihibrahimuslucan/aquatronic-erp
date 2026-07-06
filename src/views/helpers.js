@@ -18,11 +18,43 @@ export function iconForFamily(key) {
     return FAMILY_ICONS[key] ?? familyIcon(key);
 }
 
-// items.json'da photo "foto/1.jpg" olarak duruyor; dosyalar public/foto altında.
-// GÖRELİ yol döndür: file:// ile açılan dist'te de (dist/foto kopyası) çalışsın.
+// items.json'da photo "foto/1.jpg" (public/foto altında, GÖRELİ — file:// dist'te
+// de çalışsın) ya da site içinden yüklenmiş Storage public URL'i olabilir.
 export function photoUrl(item) {
     if (!item?.photo) return null;
-    return String(item.photo).replace(/^\/+/, '');
+    const p = String(item.photo);
+    if (/^https?:\/\//i.test(p)) return p;
+    return p.replace(/^\/+/, '');
+}
+
+// ─── Aydınlatma model ayrımı ────────────────────────────────────────────────
+// Adında model kodu BARİZ geçen komponent o modelin bölümüne düşer; gerisi
+// "Ortak". C'li varyantlar ayrı model sayılır (306 ≠ 306C). Sıra = ekran sırası.
+export const LIGHTING_MODELS = ['303', '306', '306C', '406', '406C', '409', '409C'];
+export function lightingModelOf(name) {
+    const n = String(name ?? '').toUpperCase();
+    // Önce C'li varyantlar: "306C" içindeki "306", \b306\b ile eşleşmez ama
+    // yine de açık sıra en güvenlisi.
+    for (const m of ['306C', '406C', '409C', '306', '406', '409', '303']) {
+        if (new RegExp(`\\b${m}\\b`).test(n)) return m;
+    }
+    return null;
+}
+
+// ─── Foto yükleme öncesi istemci tarafı küçültme ───────────────────────────
+// Telefon fotoğrafı MB'larca gelir; kovaya en fazla maxDim px, JPEG %85 gider.
+export async function compressImage(file, maxDim = 1200, quality = 0.85) {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';                 // PNG şeffaflığı siyah basmasın
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    return new Promise((res) => canvas.toBlob(res, 'image/jpeg', quality));
 }
 
 // Foto yoksa: aile ikonu + ürün adının baş harfi.

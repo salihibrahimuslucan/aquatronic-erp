@@ -37,3 +37,26 @@ export function unwrap({ data, error }) {
     if (error) throw new Error(error.message);
     return data;
 }
+
+// ─── Storage (erp-files kovası): plan PDF'leri + ürün fotoğrafları ─────────
+const BUCKET = 'erp-files';
+
+export async function uploadFile(path, blob, contentType) {
+    unwrap(await supabase.storage.from(BUCKET).upload(path, blob, { upsert: true, contentType }));
+    return path;
+}
+
+export function publicFileUrl(path) {
+    if (!supabase || !path) return null;
+    return supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+}
+
+// Hem kova yolu ("items/5.jpg") hem tam public URL kabul eder.
+export async function removeFile(pathOrUrl) {
+    if (!supabase || !pathOrUrl) return;
+    const marker = `/object/public/${BUCKET}/`;
+    const i = String(pathOrUrl).indexOf(marker);
+    const path = i >= 0 ? decodeURIComponent(pathOrUrl.slice(i + marker.length)) : pathOrUrl;
+    const { error } = await supabase.storage.from(BUCKET).remove([path]);
+    if (error) console.error('storage remove:', error.message);
+}

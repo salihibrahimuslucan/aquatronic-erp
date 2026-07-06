@@ -129,6 +129,38 @@ tr.row-critical td:nth-child(2) { color: var(--color-pink); font-weight: 600; }
 }
 .planned-del { position: absolute; top: 8px; right: 8px; }
 
+/* Aydınlatma model bölümleri (katalogda Ortak / 306 / 406C ... başlıkları) */
+.grid-section { margin-bottom: 22px; }
+.grid-section-title {
+    font-size: 0.82rem; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--text-secondary); margin: 0 0 10px 2px;
+    display: flex; align-items: center; gap: 8px;
+}
+
+/* Satır içi düzenleme (dış üretim / havuz testi) */
+.row-actions { white-space: nowrap; display: flex; gap: 6px; }
+.row-edit {
+    width: 24px; height: 24px; border-radius: 6px;
+    background: rgba(0, 245, 212, 0.08); color: var(--color-cyan); border: 1px solid rgba(0, 245, 212, 0.25);
+    cursor: pointer; font-size: 0.8rem; line-height: 1;
+}
+
+/* Plan PDF ekleri */
+.pdf-link { text-decoration: none; margin-right: 6px; }
+.planned-pdf {
+    display: inline-flex; align-items: center; gap: 4px; margin-top: 8px;
+    font-size: 0.78rem; color: var(--color-cyan); text-decoration: none;
+}
+button.planned-pdf {
+    background: none; border: 1px dashed rgba(0, 245, 212, 0.3);
+    border-radius: 6px; padding: 3px 8px; cursor: pointer;
+}
+.start-form input[type="file"] { flex: 1 1 240px; font-size: 0.75rem; color: var(--text-secondary); }
+
+/* Ürün detayı foto yönetimi */
+.photo-edit-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.photo-edit-row input[type="text"] { flex: 1; min-width: 140px; }
+
 /* Araç çubuğu buton grubu (katalog başlığı, sayım/arşiv, detay kaydet+arşivle) */
 .toolbar-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
 .control-row .toolbar-actions, .card-header .toolbar-actions { margin-top: 0; }
@@ -136,6 +168,9 @@ tr.row-critical td:nth-child(2) { color: var(--color-pink); font-weight: 600; }
 /* Giriş ekranı (bulut modu) */
 .login-overlay { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center;
     justify-content: center; background: var(--bg-deep, #070b19); }
+/* hidden attribute'u display:flex'i ezemiyordu; giriş sonrası overlay kalksın diye
+   daha yüksek özgüllükle [hidden]'ı geri getir (login "ilerlemiyor" bug'ı) */
+.login-overlay[hidden] { display: none; }
 .login-card { width: 340px; padding: 36px 32px; border: 1px solid var(--border-glass);
     border-radius: 20px; display: flex; flex-direction: column; gap: 12px; text-align: center; }
 .login-logo { width: 64px; height: 64px; object-fit: contain; margin: 0 auto 4px; }

@@ -10,7 +10,7 @@
 // Menü yapısı = netlify BASE_NAV_GROUPS (aquatronic-v7.html) — Salih onaylı:
 //   active · planned · finished · production(alt) · cable&socket(alt) · pano/psu · motor · dış · pool
 
-import { supabase, isCloud, unwrap } from './supabase.js';
+import { supabase, isCloud, unwrap, removeFile } from './supabase.js';
 
 // DİKKAT: CRM verisi/kodu BU DOSYADA DEĞİL — src/data/crm-store.js'te.
 // build:uretim paketi crm-store'u hiç import etmez (satış verisi sızmaz).
@@ -97,6 +97,22 @@ function rowToItem(r) {
     };
 }
 
+// Bulut satırları → uygulama şekilleri (havuz testi / dış üretim)
+function rowToPool(p) {
+    return {
+        id: p.id, device: p.device, sn: p.sn, desc: p.desc, status: p.status,
+        address: p.address, currentIdle: p.current_idle, currentRun: p.current_run,
+        height: p.height, startDate: p.start_date, endDate: p.end_date, notes: p.notes,
+    };
+}
+function rowToOutsource(o) {
+    return {
+        id: o.id, item: o.item, qty: o.qty, status: o.status, reqDate: o.req_date,
+        givenMat: o.given_mat, receivedQty: o.received_qty, receivedDate: o.received_date,
+        price: o.price, note: o.note,
+    };
+}
+
 // stock_moves satırı → ürün history girdisi (görünümler in/out bekler)
 function moveToHistory(m) {
     const dirIn = m.move_type === 'in' || m.move_type === 'produce'
@@ -153,26 +169,18 @@ async function loadCloudState() {
     const byId = new Map();
     const st = {
         items: items.map((r) => { const it = rowToItem(r); byId.set(String(it.id), it); return it; }),
-        pool: pool.map((p) => ({
-            id: p.id, device: p.device, sn: p.sn, desc: p.desc, status: p.status,
-            address: p.address, currentIdle: p.current_idle, currentRun: p.current_run,
-            height: p.height, startDate: p.start_date, endDate: p.end_date, notes: p.notes,
-        })),
-        dis: dis.map((o) => ({
-            id: o.id, item: o.item, qty: o.qty, status: o.status, reqDate: o.req_date,
-            givenMat: o.given_mat, receivedQty: o.received_qty, receivedDate: o.received_date,
-            price: o.price, note: o.note,
-        })),
+        pool: pool.map(rowToPool),
+        dis: dis.map(rowToOutsource),
         activeRuns: orders.filter((o) => o.status === 'active').map((o) => ({
-            id: o.id, name: o.product_name, qty: o.qty, note: o.note,
+            id: o.id, name: o.product_name, qty: o.qty, note: o.note, pdf: o.pdf_path ?? '',
             startedAt: o.started_at ? new Date(o.started_at).getTime() : null, user: o.user_name,
         })),
         plans: orders.filter((o) => o.status === 'planned').map((o) => ({
-            id: o.id, name: o.product_name, cat: o.cat ?? '', note: o.note,
+            id: o.id, name: o.product_name, cat: o.cat ?? '', note: o.note, pdf: o.pdf_path ?? '',
             createdAt: new Date(o.created_at).getTime(), user: o.user_name,
         })),
         productionArchive: orders.filter((o) => o.status === 'done').map((o) => ({
-            id: o.id, name: o.product_name, qty: o.qty, note: o.note,
+            id: o.id, name: o.product_name, qty: o.qty, note: o.note, pdf: o.pdf_path ?? '',
             completedAt: o.completed_at ? new Date(o.completed_at).getTime() : null, user: o.user_name,
         })),
         activityLog: log.map((a) => ({
@@ -337,8 +345,10 @@ export async function saveProduct(id, patch) {
     if (patch.weight !== undefined) p.weight = patch.weight === '' ? null : parseFloat(patch.weight);
     if (patch.boxQty !== undefined) p.boxQty = patch.boxQty === '' ? null : parseInt(patch.boxQty, 10);
     if (patch.photo !== undefined) {
-        const name = String(patch.photo ?? '').trim().replace(/^\/+/, '').replace(/^foto\//i, '');
-        p.photo = name ? `foto/${name}` : null;
+        const raw = String(patch.photo ?? '').trim();
+        if (!raw) p.photo = null;
+        else if (/^https?:\/\//i.test(raw)) p.photo = raw;   // Storage public URL
+        else p.photo = `foto/${raw.replace(/^\/+/, '').replace(/^foto\//i, '')}`;
     }
     if (isCloud()) {
         unwrap(await supabase.from('items').update({
@@ -489,9 +499,9 @@ export async function startProduction(productName, qty, note = '') {
             item_id: item?.id ?? null, product_name: productName, qty: n,
             status: 'active', note, user_name: _currentUser, started_at: new Date().toISOString(),
         }).select().single());
-        run = { id: row.id, name: productName, qty: n, note, startedAt: nowTs(), user: _currentUser };
+        run = { id: row.id, name: productName, qty: n, note, pdf: '', startedAt: nowTs(), user: _currentUser };
     } else {
-        run = { id: nowTs(), name: productName, qty: n, note, startedAt: nowTs(), user: _currentUser };
+        run = { id: nowTs(), name: productName, qty: n, note, pdf: '', startedAt: nowTs(), user: _currentUser };
     }
     state.activeRuns.unshift(run);
     logActivity('production-start', productName, `${run.qty} adet üretime alındı`);
@@ -549,27 +559,45 @@ export async function completeRun(runId) {
 
 // ─── Planlı üretim (PDF/not kartları) ──────────────────────────────────────
 export async function getPlans() { return (await ensureState()).plans; }
-export async function addPlan(name, cat, note) {
+export async function addPlan(name, cat, note, pdfPath = '') {
     await ensureState();
     let plan;
     if (isCloud()) {
         const row = unwrap(await supabase.from('production_orders').insert({
             product_name: name, qty: 1, status: 'planned', cat: cat ?? '',
-            note: note ?? '', user_name: _currentUser,
+            note: note ?? '', pdf_path: pdfPath ?? '', user_name: _currentUser,
         }).select().single());
-        plan = { id: row.id, name, cat: cat ?? '', note: note ?? '', createdAt: nowTs(), user: _currentUser };
+        plan = { id: row.id, name, cat: cat ?? '', note: note ?? '', pdf: pdfPath ?? '', createdAt: nowTs(), user: _currentUser };
     } else {
-        plan = { id: nowTs(), name, cat: cat ?? '', note: note ?? '', createdAt: nowTs(), user: _currentUser };
+        plan = { id: nowTs(), name, cat: cat ?? '', note: note ?? '', pdf: '', createdAt: nowTs(), user: _currentUser };
     }
     state.plans.unshift(plan);
     logActivity('plan-add', name, 'yeni üretim planı');
     persist();
     return plan;
 }
+
+// Var olan plan kartına PDF bağla (dosya Storage'a görünümde yüklenir)
+export async function setPlanPdf(id, pdfPath) {
+    await ensureState();
+    const plan = state.plans.find((p) => p.id === id);
+    if (!plan) return null;
+    if (isCloud()) {
+        unwrap(await supabase.from('production_orders').update({ pdf_path: pdfPath ?? '' }).eq('id', id).select());
+        if (plan.pdf && plan.pdf !== pdfPath) removeFile(plan.pdf);   // eskisi kovada kalmasın
+    }
+    plan.pdf = pdfPath ?? '';
+    logActivity('plan-pdf', plan.name, pdfPath ? 'PDF eklendi' : 'PDF kaldırıldı');
+    persist();
+    return plan;
+}
+
 export async function deletePlan(id) {
     await ensureState();
+    const plan = state.plans.find((p) => p.id === id);
     if (isCloud()) {
         unwrap(await supabase.from('production_orders').delete().eq('id', id).eq('status', 'planned').select());
+        if (plan?.pdf) removeFile(plan.pdf);
     }
     state.plans = state.plans.filter((p) => p.id !== id);
     persist();
@@ -582,8 +610,117 @@ export async function getPoolItemById(id) {
     return state.pool.find((p) => String(p.id) === String(id)) ?? null;
 }
 
+const POOL_FIELDS = ['device', 'sn', 'desc', 'status', 'address', 'currentIdle', 'currentRun', 'height', 'startDate', 'endDate', 'notes'];
+function poolRowOf(fields) {
+    return {
+        device: fields.device ?? '', sn: fields.sn ?? '', desc: fields.desc ?? '',
+        status: fields.status ?? '', address: fields.address ?? '',
+        current_idle: fields.currentIdle ?? '', current_run: fields.currentRun ?? '',
+        height: fields.height ?? '', start_date: fields.startDate ?? '',
+        end_date: fields.endDate ?? '', notes: fields.notes ?? '',
+    };
+}
+
+export async function addPoolTest(fields) {
+    await ensureState();
+    if (!String(fields.device ?? '').trim()) return { ok: false, error: 'Cihaz adı boş olamaz.' };
+    let rec;
+    if (isCloud()) {
+        try {
+            rec = rowToPool(unwrap(await supabase.from('pool_tests').insert(poolRowOf(fields)).select().single()));
+        } catch (e) { return { ok: false, error: e.message }; }
+    } else {
+        const maxId = state.pool.reduce((m, p) => Math.max(m, Number(p.id) || 0), 0);
+        rec = { id: maxId + 1 };
+        for (const k of POOL_FIELDS) rec[k] = fields[k] ?? '';
+    }
+    state.pool.push(rec);
+    logActivity('pool-add', rec.device, `havuz testi kaydı (SN: ${rec.sn || '—'})`);
+    persist();
+    return { ok: true, rec };
+}
+
+export async function updatePoolTest(id, fields) {
+    await ensureState();
+    const rec = state.pool.find((p) => String(p.id) === String(id));
+    if (!rec) return null;
+    if (isCloud()) {
+        unwrap(await supabase.from('pool_tests').update(poolRowOf(fields)).eq('id', rec.id).select().single());
+    }
+    for (const k of POOL_FIELDS) rec[k] = fields[k] ?? '';
+    logActivity('pool-edit', rec.device, 'havuz testi kaydı güncellendi');
+    persist();
+    return rec;
+}
+
+export async function deletePoolTest(id) {
+    await ensureState();
+    const rec = state.pool.find((p) => String(p.id) === String(id));
+    if (!rec) return;
+    if (isCloud()) {
+        unwrap(await supabase.from('pool_tests').delete().eq('id', rec.id).select());
+    }
+    state.pool = state.pool.filter((p) => p !== rec);
+    logActivity('pool-delete', rec.device, `havuz testi kaydı silindi (SN: ${rec.sn || '—'})`);
+    persist();
+}
+
 // ─── Dış üretim (fason — Ömer Kablo) ───────────────────────────────────────
 export async function getOutsourceJobs() { return (await ensureState()).dis; }
+
+const OUTSOURCE_FIELDS = ['item', 'qty', 'status', 'reqDate', 'givenMat', 'receivedQty', 'receivedDate', 'price', 'note'];
+function outsourceRowOf(fields) {
+    return {
+        item: fields.item ?? '', qty: fields.qty ?? '', status: fields.status ?? '',
+        req_date: fields.reqDate ?? '', given_mat: fields.givenMat ?? '',
+        received_qty: fields.receivedQty ?? '', received_date: fields.receivedDate ?? '',
+        price: fields.price ?? '', note: fields.note ?? '',
+    };
+}
+
+export async function addOutsourceJob(fields) {
+    await ensureState();
+    if (!String(fields.item ?? '').trim()) return { ok: false, error: 'Ürün / kalem adı boş olamaz.' };
+    let job;
+    if (isCloud()) {
+        try {
+            job = rowToOutsource(unwrap(await supabase.from('outsource_jobs').insert(outsourceRowOf(fields)).select().single()));
+        } catch (e) { return { ok: false, error: e.message }; }
+    } else {
+        const maxId = state.dis.reduce((m, j) => Math.max(m, Number(j.id) || 0), 0);
+        job = { id: maxId + 1 };
+        for (const k of OUTSOURCE_FIELDS) job[k] = fields[k] ?? '';
+    }
+    state.dis.push(job);
+    logActivity('outsource-add', job.item, `fason iş açıldı (${job.qty || '?'} adet)`);
+    persist();
+    return { ok: true, job };
+}
+
+export async function updateOutsourceJob(id, fields) {
+    await ensureState();
+    const job = state.dis.find((j) => String(j.id) === String(id));
+    if (!job) return null;
+    if (isCloud()) {
+        unwrap(await supabase.from('outsource_jobs').update(outsourceRowOf(fields)).eq('id', job.id).select().single());
+    }
+    for (const k of OUTSOURCE_FIELDS) job[k] = fields[k] ?? '';
+    logActivity('outsource-edit', job.item, 'fason iş güncellendi');
+    persist();
+    return job;
+}
+
+export async function deleteOutsourceJob(id) {
+    await ensureState();
+    const job = state.dis.find((j) => String(j.id) === String(id));
+    if (!job) return;
+    if (isCloud()) {
+        unwrap(await supabase.from('outsource_jobs').delete().eq('id', job.id).select());
+    }
+    state.dis = state.dis.filter((j) => j !== job);
+    logActivity('outsource-delete', job.item, 'fason iş silindi');
+    persist();
+}
 
 // ─── Hareket defteri (global activityLog) ──────────────────────────────────
 export async function getActivityLog() {
@@ -591,30 +728,10 @@ export async function getActivityLog() {
     return state.activityLog.slice().sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0));
 }
 
-// ─── KPI'lar + genel bakış ─────────────────────────────────────────────────
-export async function getKpis() {
-    await ensureState();
-    const live = state.items.filter((i) => !i.archived);
-    const critical = live.filter((i) => stockStatus(i) === 'critical');
-    return {
-        totalItems: live.length,
-        criticalCount: critical.length,
-        activeCount: state.activeRuns.length,
-        outsourceCount: state.dis.length,
-    };
-}
-
 // Fotoğrafı olmayan bitmiş ürünler — Faz 0 çekim listesi (Salih sırayla çekecek)
 export async function getMissingPhotoItems() {
     await ensureState();
     return state.items.filter((i) => i.family === 'finished' && !i.photo && !i.archived);
-}
-
-export async function getCriticalItems() {
-    await ensureState();
-    return state.items
-        .filter((i) => !i.archived && stockStatus(i) !== 'ok')
-        .sort((a, b) => (a.qty - a.critical) - (b.qty - b.critical));
 }
 
 // ─── Ortak yardımcılar ─────────────────────────────────────────────────────

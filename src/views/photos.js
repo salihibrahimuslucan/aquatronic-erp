@@ -1,6 +1,6 @@
 // Çekilecek Foto listesi — fotoğrafı olmayan bitmiş ürünler (Faz 0 çekim planı).
-// Salih bu sırayla çekim yapacak; dosya public/foto altına konur, ürün
-// detayındaki "Foto dosya adı" alanına adı yazılır.
+// Salih bu sırayla çekim yapacak; çekilen foto ürün detayındaki "📤 Foto Yükle"
+// ile doğrudan siteden yüklenir (Storage). Giriş: Bitmiş Ürünler araç çubuğu.
 import { getMissingPhotoItems } from '../data/store.js';
 import { esc, iconForFamily } from './helpers.js';
 
@@ -16,8 +16,8 @@ export const missingPhotoView = {
                 <div class="card-header flex-row">
                     <div>
                         <h2>📷 Çekilecek Foto <span class="count-chip">${items.length}</span></h2>
-                        <p class="card-subtitle">Çekim reçetesi: ürün etiketi kadrajda olsun · dosyayı <span class="mono">public/foto</span> klasörüne koy ·
-                        ürün detayındaki "Foto dosya adı" alanına dosya adını yaz (ör. <span class="mono">99.jpg</span>).</p>
+                        <p class="card-subtitle">Çekim reçetesi: ürün etiketi kadrajda olsun · çektiğin fotoğrafı
+                        ürün detayındaki <b>📤 Foto Yükle</b> düğmesiyle doğrudan siteden yükle.</p>
                     </div>
                     <button class="btn btn-outline" data-goto="g/finished">Bitmiş Ürünler →</button>
                 </div>

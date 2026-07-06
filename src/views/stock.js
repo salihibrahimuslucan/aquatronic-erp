@@ -4,9 +4,13 @@ import {
     getGroup, getStockGroup, getItemById, getItems,
     stockIn, stockOut, saveProduct, stockStatus, stockStatusLabel,
     getBomDetail, setBomRow, removeBomRow, getWhereUsed,
-    addProduct, setArchived, applyCount,
+    addProduct, setArchived, applyCount, getMissingPhotoItems,
 } from '../data/store.js';
-import { photoUrl, placeholderHtml, statusPillClass, esc, fmtWhen, iconForFamily } from './helpers.js';
+import { isCloud, uploadFile, publicFileUrl, removeFile } from '../data/supabase.js';
+import {
+    photoUrl, placeholderHtml, statusPillClass, esc, fmtWhen, iconForFamily,
+    LIGHTING_MODELS, lightingModelOf, compressImage,
+} from './helpers.js';
 import { showToast } from '../main.js';
 
 const MAX_RENDER = 200;          // grid'e tek seferde en çok kart
@@ -35,6 +39,7 @@ export const stockGroupView = {
             const { group, subs } = await getStockGroup(groupId);
             const { subs: archivedSubs } = await getStockGroup(groupId, true);
             const archivedCount = archivedSubs.reduce((n, s) => n + s.items.length, 0);
+            const missingPhotos = groupId === 'finished' ? await getMissingPhotoItems() : [];
             setHeader(group.label, 'Foto-öncelikli ürün kataloğu ve anlık stok hareketleri.');
 
             if (!activeSub[groupId] || !subs.some((s) => s.key === activeSub[groupId])) {
@@ -59,6 +64,7 @@ export const stockGroupView = {
                         <button class="btn btn-primary btn-sm" id="btn-add-product">＋ Ürün</button>
                         <button class="btn btn-outline btn-sm" id="btn-count-mode">Sayım</button>
                         <button class="btn btn-outline btn-sm" id="btn-archive-mode" ${archivedCount ? '' : 'disabled'}>Arşiv (${archivedCount})</button>
+                        ${missingPhotos.length ? `<button class="btn btn-outline btn-sm" id="btn-foto-eksik">📷 Çekilecek (${missingPhotos.length})</button>` : ''}
                     </div>
                 </div>
                 <div class="start-form" id="add-form" hidden>
@@ -68,23 +74,35 @@ export const stockGroupView = {
                     <input type="text" id="af-photo" placeholder="Foto dosya adı (public/foto altına konur, ör. 99.jpg)">
                     <button class="btn btn-primary" id="af-go">Ekle → ${esc(curSub()?.label ?? group.label)}</button>
                 </div>
-                <div class="product-grid" id="grid"></div>`;
+                <div id="grid"></div>`;
 
             const grid = pane.querySelector('#grid');
             const searchInput = pane.querySelector('#stock-search');
 
             const draw = () => {
                 const q = searchInput.value.trim().toLowerCase();
-                let list;
-                if (q) {
-                    list = subs.flatMap((s) => s.items).filter((i) =>
-                        i.name.toLowerCase().includes(q) || (i.tr || '').toLowerCase().includes(q));
-                } else {
-                    list = curSub()?.items ?? [];
+                const list = q
+                    ? subs.flatMap((s) => s.items).filter((i) =>
+                        i.name.toLowerCase().includes(q) || (i.tr || '').toLowerCase().includes(q))
+                    : (curSub()?.items ?? []);
+
+                // Aydınlatma: adında model kodu geçen komponentler kendi bölümüne,
+                // gerisi "Ortak" — arama yapılırken düz liste.
+                if (!q && activeSub[groupId] === 'lighting') {
+                    const buckets = new Map([['Ortak', []], ...LIGHTING_MODELS.map((m) => [m, []])]);
+                    for (const it of list) buckets.get(lightingModelOf(it.name) ?? 'Ortak').push(it);
+                    grid.innerHTML = [...buckets].filter(([, arr]) => arr.length).map(([label, arr]) => `
+                        <div class="grid-section">
+                            <h3 class="grid-section-title">${label === 'Ortak' ? 'Ortak Komponentler' : `Model ${label}`}
+                                <span class="tab-count">${arr.length}</span></h3>
+                            <div class="product-grid">${arr.map(renderCard).join('')}</div>
+                        </div>`).join('') || '<div class="empty-state"><h3>Kayıt yok</h3></div>';
+                    return;
                 }
+
                 const shown = list.slice(0, MAX_RENDER);
                 grid.innerHTML = shown.length
-                    ? shown.map(renderCard).join('') + (list.length > MAX_RENDER
+                    ? `<div class="product-grid">${shown.map(renderCard).join('')}</div>` + (list.length > MAX_RENDER
                         ? `<p class="grid-more">${list.length - MAX_RENDER} kalem daha — aramayla daralt.</p>` : '')
                     : '<div class="empty-state"><h3>Kayıt yok</h3></div>';
             };
@@ -139,6 +157,7 @@ export const stockGroupView = {
             pane.querySelector('#btn-count-mode').addEventListener('click', () => { mode = 'count'; paint(); });
             const archBtn = pane.querySelector('#btn-archive-mode');
             if (!archBtn.disabled) archBtn.addEventListener('click', () => { mode = 'archive'; paint(); });
+            pane.querySelector('#btn-foto-eksik')?.addEventListener('click', () => { location.hash = '#/foto-eksik'; });
 
             draw();
         }
@@ -331,7 +350,15 @@ export const stockDetailView = {
                                     <div class="form-group"><label>Ağırlık (kg)</label><input type="text" id="e-weight" value="${p.weight ?? ''}"></div>
                                 </div>
                                 <div class="form-group"><label>Not</label><input type="text" id="e-note" value="${esc(p.note)}"></div>
-                                <div class="form-group"><label>Foto dosya adı (public/foto altında)</label><input type="text" id="e-photo" value="${esc((p.photo || '').replace(/^foto\//, ''))}" placeholder="ör. 99.jpg — boş = foto yok"></div>
+                                <div class="form-group"><label>Fotoğraf</label>
+                                    <div class="photo-edit-row">
+                                        ${isCloud() ? `
+                                        <button class="btn btn-outline btn-sm" id="btn-photo-upload">📤 Foto Yükle</button>
+                                        ${p.photo ? '<button class="btn btn-outline btn-sm" id="btn-photo-remove">✕ Kaldır</button>' : ''}
+                                        <input type="file" id="photo-file" accept="image/*" hidden>` : ''}
+                                        <input type="text" id="e-photo" value="${esc((p.photo || '').replace(/^foto\//, ''))}" placeholder="ör. 99.jpg (public/foto) — boş = foto yok">
+                                    </div>
+                                </div>
                                 <div class="meta-mini">Kod/ID: #${p.id} · Arama etiketi: ${esc(p.tr || '—')}</div>
                                 <div class="toolbar-actions">
                                     <button class="btn btn-primary" id="btn-save">Bilgileri Kaydet</button>
@@ -422,6 +449,34 @@ export const stockDetailView = {
             pane.querySelector('#btn-archive').addEventListener('click', async () => {
                 await setArchived(p.id, !p.archived);
                 showToast(p.archived ? `Arşivlendi: ${p.name}` : `Geri alındı: ${p.name}`);
+                draw();
+            });
+
+            // Site içi foto yönetimi (bulut modu): küçült → Storage'a yükle →
+            // public URL'i ürüne yaz; eski Storage fotosu kovadan silinir.
+            const photoInp = pane.querySelector('#photo-file');
+            pane.querySelector('#btn-photo-upload')?.addEventListener('click', () => photoInp.click());
+            photoInp?.addEventListener('change', async () => {
+                const file = photoInp.files?.[0];
+                if (!file) return;
+                try {
+                    showToast('Fotoğraf yükleniyor...');
+                    const blob = await compressImage(file);
+                    const path = `items/${p.id}-${Date.now()}.jpg`;
+                    await uploadFile(path, blob, 'image/jpeg');
+                    const old = p.photo;
+                    await saveProduct(p.id, { photo: publicFileUrl(path) });
+                    if (old && /^https?:/i.test(old)) removeFile(old);
+                    showToast('Fotoğraf güncellendi.');
+                    draw();
+                } catch (e) { showToast(`Yükleme hatası: ${e.message}`); }
+            });
+            pane.querySelector('#btn-photo-remove')?.addEventListener('click', async () => {
+                if (!confirm(`${p.name} fotoğrafı kaldırılsın mı?`)) return;
+                const old = p.photo;
+                await saveProduct(p.id, { photo: '' });
+                if (old && /^https?:/i.test(old)) removeFile(old);
+                showToast('Fotoğraf kaldırıldı.');
                 draw();
             });
             pane.querySelectorAll('[data-goto]').forEach((el) =>

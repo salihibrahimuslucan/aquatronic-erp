@@ -87,6 +87,7 @@ create table if not exists production_orders (
     status       text not null default 'planned' check (status in ('planned', 'active', 'done')),
     cat          text not null default '', -- planlı kartlardaki kategori etiketi
     note         text not null default '',
+    pdf_path     text not null default '', -- storage 'erp-files' içindeki plan PDF yolu
     user_name    text not null default '',
     created_at   timestamptz not null default now(),
     started_at   timestamptz,
@@ -186,6 +187,25 @@ alter table production_orders enable row level security;
 alter table pool_tests        enable row level security;
 alter table outsource_jobs    enable row level security;
 alter table activity_log      enable row level security;
+
+-- ─── Storage: erp-files kovası (plan PDF'leri + ürün fotoğrafları) ─────────
+-- Public okuma (URL ile servis edilir), yazma yalnız girişli kullanıcı.
+insert into storage.buckets (id, name, public)
+values ('erp-files', 'erp-files', true)
+on conflict (id) do update set public = true;
+drop policy if exists erp_files_select on storage.objects;
+drop policy if exists erp_files_insert on storage.objects;
+drop policy if exists erp_files_update on storage.objects;
+drop policy if exists erp_files_delete on storage.objects;
+-- SELECT şart: storage API yükleme öncesi varlık kontrolü/upsert için okur
+create policy erp_files_select on storage.objects for select to authenticated
+    using (bucket_id = 'erp-files');
+create policy erp_files_insert on storage.objects for insert to authenticated
+    with check (bucket_id = 'erp-files');
+create policy erp_files_update on storage.objects for update to authenticated
+    using (bucket_id = 'erp-files') with check (bucket_id = 'erp-files');
+create policy erp_files_delete on storage.objects for delete to authenticated
+    using (bucket_id = 'erp-files');
 
 -- Herkes (girişli) kendi profilini okur; yönetici hepsini yönetir
 create policy profiles_self_read on profiles for select
