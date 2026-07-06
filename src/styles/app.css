@@ -122,8 +122,9 @@ tr.row-critical td:nth-child(2) { color: var(--color-pink); font-weight: 600; }
 .planned-cat { font-size: 0.72rem; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; margin-bottom: 8px; }
 .planned-note { font-size: 0.82rem; color: var(--text-secondary); line-height: 1.4; min-height: 20px; }
 .planned-meta { font-size: 0.68rem; color: var(--text-muted); margin-top: 10px; }
-.planned-del {
-    position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; border-radius: 6px;
+.planned-del, .row-del {
+    width: 24px; height: 24px; border-radius: 6px;
     background: rgba(247,37,133,0.1); color: var(--color-pink); border: 1px solid rgba(247,37,133,0.25);
     cursor: pointer; font-size: 0.8rem; line-height: 1;
 }
+.planned-del { position: absolute; top: 8px; right: 8px; }

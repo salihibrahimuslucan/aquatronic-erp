@@ -20,6 +20,10 @@ const itemsJson = loadJson('items');
 const outsourceJson = loadJson('outsource') ?? [];
 const opsJson = loadJson('ops') ?? {};
 
+// Gerçek kaynaklardan (STOK.xlsx ÜRETİM sayfaları + scv CSV) çıkarılmış BOM
+// tohumu — yalnız BOŞ reçeteleri doldurur, kullanıcının girdiğini asla ezmez.
+import bomSeed from './bom-seed.json';
+
 // ─── Menü grupları (operasyon tarafı) ────────────────────────────────────
 // type: stock = ürün kartı grid'i (subs ile) · active/planned/outsource/pool = özel görünüm
 export const OP_GROUPS = [
@@ -73,6 +77,8 @@ function normalizeItem(raw, idx) {
         tr: raw.tr ?? raw.name ?? '',
         history: Array.isArray(raw.history) ? raw.history.slice() : [],
         components: raw.components ?? null,
+        bom: Array.isArray(raw.bom) ? raw.bom.map((r) => ({ ...r })) : [],   // [{itemId, qty}]
+        archived: !!raw.archived,
     };
 }
 
@@ -92,13 +98,27 @@ function seed() {
     };
 }
 
+// Şema yükseltme: eski localStorage kayıtlarında bom/archived yok; ekle ve
+// BOŞ reçeteleri bom-seed'den doldur (kullanıcı girdisi asla ezilmez).
+function migrate(st) {
+    if (!st || !Array.isArray(st.items)) return st;
+    const seedMap = new Map(bomSeed.map((b) => [String(b.productId), b.bom]));
+    for (const it of st.items) {
+        if (!Array.isArray(it.bom)) it.bom = [];
+        it.archived = !!it.archived;
+        const seedBom = seedMap.get(String(it.id));
+        if (!it.bom.length && seedBom?.length) it.bom = seedBom.map((r) => ({ ...r }));
+    }
+    return st;
+}
+
 function ensureState() {
     if (state) return state;
     try {
         const raw = localStorage.getItem(LS_KEY);
-        state = raw ? JSON.parse(raw) : seed();
+        state = migrate(raw ? JSON.parse(raw) : seed());
     } catch {
-        state = seed();
+        state = migrate(seed());
     }
     return state;
 }
@@ -108,7 +128,7 @@ function persist() {
 }
 
 export function resetToSeed() {
-    state = seed();
+    state = migrate(seed());
     persist();
 }
 
@@ -199,6 +219,49 @@ export async function saveProduct(id, patch) {
     return p;
 }
 
+// ─── BOM (ürün reçetesi) ───────────────────────────────────────────────────
+// bom: [{itemId, qty}] — qty = 1 adet ürün için tüketilen komponent adedi.
+export async function setBomRow(productId, itemId, qty) {
+    const p = await getItemById(productId);
+    const comp = await getItemById(itemId);
+    const n = parseInt(qty, 10) || 0;
+    if (!p || !comp || n <= 0 || String(p.id) === String(comp.id)) return null;
+    if (!Array.isArray(p.bom)) p.bom = [];
+    const row = p.bom.find((r) => String(r.itemId) === String(comp.id));
+    if (row) row.qty = n; else p.bom.push({ itemId: comp.id, qty: n });
+    logActivity('bom-edit', p.name, `reçete: ${comp.name} ×${n}`);
+    persist();
+    return p;
+}
+
+export async function removeBomRow(productId, itemId) {
+    const p = await getItemById(productId);
+    if (!p || !Array.isArray(p.bom)) return null;
+    const comp = await getItemById(itemId);
+    p.bom = p.bom.filter((r) => String(r.itemId) !== String(itemId));
+    logActivity('bom-edit', p.name, `reçeteden çıkarıldı: ${comp?.name ?? '#' + itemId}`);
+    persist();
+    return p;
+}
+
+// Reçete satırları + komponent kayıtları (UI için çözülmüş hali)
+export async function getBomDetail(productId) {
+    const p = await getItemById(productId);
+    if (!p || !Array.isArray(p.bom)) return [];
+    return p.bom.map((r) => ({
+        itemId: r.itemId, qty: r.qty,
+        item: state.items.find((i) => String(i.id) === String(r.itemId)) ?? null,
+    }));
+}
+
+// Ters liste: bu komponent hangi ürünlerin reçetesinde geçiyor?
+export async function getWhereUsed(itemId) {
+    ensureState();
+    return state.items
+        .filter((p) => Array.isArray(p.bom) && p.bom.some((r) => String(r.itemId) === String(itemId)))
+        .map((p) => ({ product: p, qty: p.bom.find((r) => String(r.itemId) === String(itemId)).qty }));
+}
+
 // ─── Aktif üretim + arşiv ──────────────────────────────────────────────────
 export async function getActiveRuns() { return ensureState().activeRuns; }
 export async function getProductionArchive() { return ensureState().productionArchive; }
@@ -218,11 +281,24 @@ export async function completeRun(runId) {
     const run = state.activeRuns.splice(idx, 1)[0];
     run.completedAt = nowTs();
     state.productionArchive.unshift(run);
-    // Bitmiş ürün stoğuna ekle (varsa)
+    // Bitmiş ürün stoğuna ekle (varsa) + BOM doluysa komponentleri tüket
     const p = state.items.find((i) => i.name === run.name);
     if (p) {
         p.qty += run.qty;
         p.history.unshift({ type: 'in', qty: run.qty, date: trDate(), note: 'Üretim tamamlandı', ts: nowTs(), user: 'Üretim' });
+        if (Array.isArray(p.bom)) {
+            for (const row of p.bom) {
+                const comp = state.items.find((i) => String(i.id) === String(row.itemId));
+                const consume = (Number(row.qty) || 0) * run.qty;
+                if (!comp || consume <= 0) continue;
+                comp.qty = Math.max(0, comp.qty - consume);
+                comp.history.unshift({
+                    type: 'out', qty: consume, date: trDate(),
+                    note: `Üretim tüketimi — ${run.name} ×${run.qty}`, ts: nowTs(), user: 'Üretim',
+                });
+                logActivity('production-consume', comp.name, `−${consume} (${run.name} ×${run.qty}, kalan: ${comp.qty})`);
+            }
+        }
     }
     logActivity('production-done', run.name, `${run.qty} adet tamamlandı → stok`);
     persist();

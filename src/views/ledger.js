@@ -13,6 +13,8 @@ const ACTION_LABELS = {
     'product-delete': { label: 'Ürün Silindi', dir: 'out' },
     'production-start': { label: 'Üretim Başladı', dir: 'in' },
     'production-done': { label: 'Üretim Tamamlandı', dir: 'in' },
+    'production-consume': { label: 'Üretim Tüketimi', dir: 'out' },
+    'bom-edit': { label: 'Reçete Düzenlendi', dir: null },
     'plan-add': { label: 'Plan Eklendi', dir: 'in' },
     'plan-delete': { label: 'Plan Silindi', dir: 'out' },
     'tab-add': { label: 'Sekme Eklendi', dir: 'in' },

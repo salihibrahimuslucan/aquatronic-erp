@@ -1,8 +1,9 @@
 // Stok grubu görünümü (finished/production/cable/pano/motor) + ürün detayı.
 // Grup alt-sekmelerle gelir; kart foto-öncelikli; +/- kalıcı stok hareketi yazar.
 import {
-    getGroup, getStockGroup, getItemById,
+    getGroup, getStockGroup, getItemById, getItems,
     stockIn, stockOut, saveProduct, stockStatus, stockStatusLabel,
+    getBomDetail, setBomRow, removeBomRow, getWhereUsed,
 } from '../data/store.js';
 import { photoUrl, placeholderHtml, statusPillClass, esc, fmtWhen, iconForFamily } from './helpers.js';
 import { showToast } from '../main.js';
@@ -125,9 +126,12 @@ export const stockDetailView = {
         if (!p) { pane.innerHTML = '<p class="empty-row">Ürün bulunamadı.</p>'; return; }
         setHeader('Ürün Detayı', 'Stok hareketi (giriş/çıkış), bilgi düzenleme ve hareket geçmişi.');
 
-        const draw = () => {
+        const draw = async () => {
             const st = stockStatus(p);
             const url = photoUrl(p);
+            const [bomRows, whereUsed, allItems] = await Promise.all([
+                getBomDetail(p.id), getWhereUsed(p.id), getItems(),
+            ]);
             pane.innerHTML = `
                 <div class="detail-actions">
                     <button class="btn btn-outline" data-goto="g/${groupOf(p)}">
@@ -175,6 +179,50 @@ export const stockDetailView = {
                             </div>
                         </div>
                         <div class="grid-card bg-glass margin-top-lg">
+                            <div class="card-header"><h2>Reçete (BOM)</h2>
+                            <p class="card-subtitle">1 adet ${esc(p.name)} için tüketilen komponentler — üretim emri tamamlanınca stoktan otomatik düşer.</p></div>
+                            <div class="table-container small-table">
+                                <table><thead><tr><th>Komponent</th><th>Adet / Ürün</th><th>Komponent Stoku</th><th></th></tr></thead>
+                                <tbody>${bomRows.length ? bomRows.map((r) => r.item ? `
+                                    <tr>
+                                        <td class="strong" style="cursor:pointer" data-bom-goto="${r.item.id}">${esc(r.item.name)}</td>
+                                        <td class="mono">×${r.qty}</td>
+                                        <td class="mono ${stockStatus(r.item) === 'critical' ? 'text-pink' : ''}">${r.item.qty}</td>
+                                        <td><button class="row-del" data-bom-del="${r.item.id}" title="Reçeteden çıkar">✕</button></td>
+                                    </tr>` : `
+                                    <tr>
+                                        <td class="strong" style="color:var(--text-muted)">Silinmiş kalem (#${esc(r.itemId)})</td>
+                                        <td class="mono">×${r.qty}</td><td>—</td>
+                                        <td><button class="row-del" data-bom-del="${esc(r.itemId)}" title="Reçeteden çıkar">✕</button></td>
+                                    </tr>`).join('')
+                                    : '<tr><td colspan="4" class="empty-row">Reçete boş — aşağıdan komponent ekleyin.</td></tr>'}
+                                </tbody></table>
+                            </div>
+                            <div class="start-form" style="margin-top:12px">
+                                <input type="text" id="bom-item" list="bom-item-list" placeholder="Komponent ara (ad yazın)...">
+                                <datalist id="bom-item-list">
+                                    ${allItems.filter((i) => String(i.id) !== String(p.id) && !i.archived)
+                                        .map((i) => `<option value="${esc(i.name)} (#${i.id})"></option>`).join('')}
+                                </datalist>
+                                <input type="number" id="bom-qty" value="1" min="1" title="1 adet ürün için adet">
+                                <button class="btn btn-primary" id="bom-add">+ Reçeteye Ekle</button>
+                            </div>
+                        </div>
+                        ${whereUsed.length ? `
+                        <div class="grid-card bg-glass margin-top-lg">
+                            <div class="card-header"><h2>Nerede Kullanılıyor</h2>
+                            <p class="card-subtitle">Bu kalemi reçetesinde tüketen ürünler.</p></div>
+                            <div class="table-container small-table">
+                                <table><thead><tr><th>Ürün</th><th>Adet / Ürün</th></tr></thead>
+                                <tbody>${whereUsed.map((w) => `
+                                    <tr>
+                                        <td class="strong" style="cursor:pointer" data-bom-goto="${w.product.id}">${esc(w.product.name)}</td>
+                                        <td class="mono">×${w.qty}</td>
+                                    </tr>`).join('')}
+                                </tbody></table>
+                            </div>
+                        </div>` : ''}
+                        <div class="grid-card bg-glass margin-top-lg">
                             <div class="card-header"><h2>Hareket Geçmişi</h2><p class="card-subtitle">Bu ürünün son stok giriş/çıkışları.</p></div>
                             <div class="table-container small-table">
                                 <table><thead><tr><th>Tarih</th><th>Tip</th><th>Miktar</th><th>Kullanıcı</th><th>Not</th></tr></thead>
@@ -211,8 +259,32 @@ export const stockDetailView = {
             });
             pane.querySelectorAll('[data-goto]').forEach((el) =>
                 el.addEventListener('click', () => { location.hash = `#/${el.dataset.goto}`; }));
+
+            // Reçete: ekle / çıkar / komponente git
+            pane.querySelector('#bom-add').addEventListener('click', async () => {
+                const raw = pane.querySelector('#bom-item').value.trim();
+                const qty = pane.querySelector('#bom-qty').value;
+                const m = /#(\d+)\)\s*$/.exec(raw);
+                let comp = m ? await getItemById(m[1]) : null;
+                if (!comp && raw) {
+                    const all = await getItems();
+                    comp = all.find((i) => i.name.toLowerCase() === raw.toLowerCase()) ?? null;
+                }
+                if (!comp) { showToast('Komponent bulunamadı — listeden seçin.'); return; }
+                const ok = await setBomRow(p.id, comp.id, qty);
+                showToast(ok ? `Reçeteye eklendi: ${comp.name} ×${qty}` : 'Eklenemedi (adet ≥ 1 olmalı).');
+                if (ok) draw();
+            });
+            pane.querySelectorAll('[data-bom-del]').forEach((btn) => btn.addEventListener('click', async () => {
+                await removeBomRow(p.id, btn.dataset.bomDel);
+                showToast('Reçeteden çıkarıldı.');
+                draw();
+            }));
+            pane.querySelectorAll('[data-bom-goto]').forEach((el) => el.addEventListener('click', () => {
+                location.hash = `#/stok/urun/${el.dataset.bomGoto}`;
+            }));
         };
-        draw();
+        await draw();
     },
 };
 
