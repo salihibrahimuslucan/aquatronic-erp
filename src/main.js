@@ -5,6 +5,7 @@ import { purchasingView, purchaseOrderView } from './views/purchasing.js';
 import { partnersView, partnerDetailView } from './views/partners.js';
 import { ledgerView } from './views/ledger.js';
 import { missingPhotoView } from './views/photos.js';
+import { reportsView } from './views/reports.js';
 import { WITH_SALES, crmPipelineView, crmDealView, crmLogView, salesNavHtml } from '@sales';
 import { getOpGroups, getGroup, setCurrentUser } from './data/store.js';
 import { isCloud, getProfile, signIn, signOut } from './data/supabase.js';
@@ -16,6 +17,11 @@ let userProfile = null;
 const ROLE_LABEL = { yonetici: 'Yönetici', uretim: 'Üretim', satis: 'Satış' };
 export function salesAllowed() {
     return WITH_SALES && (!userProfile || userProfile.role !== 'uretim');
+}
+// Raporlar Paneli yönetici-özel rotası. Bulut-dışı dev'de userProfile null →
+// true (geliştirme görebilsin); bulutta yalnız 'yonetici' rolü.
+export function managerAllowed() {
+    return !userProfile || userProfile.role === 'yonetici';
 }
 
 // ─── Menü ikonları (SVG line) ──────────────────────────────────────────────
@@ -38,6 +44,7 @@ const ICON = {
     cari: '<rect x="2" y="4" width="20" height="16" rx="2"></rect><circle cx="9" cy="10" r="2"></circle><path d="M5 16c0-1.7 1.8-3 4-3s4 1.3 4 3"></path><line x1="15" y1="8" x2="19" y2="8"></line><line x1="15" y1="12" x2="19" y2="12"></line>',
     money: '<line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>',
     hr: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><line x1="19" y1="8" x2="19" y2="14"></line><line x1="22" y1="11" x2="16" y2="11"></line>',
+    rapor: '<path d="M3 3v18h18"></path><rect x="7" y="12" width="3" height="6"></rect><rect x="12" y="8" width="3" height="10"></rect><rect x="17" y="5" width="3" height="13"></rect>',
 };
 function svg(name) {
     return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="nav-icon">${ICON[name] ?? ''}</svg>`;
@@ -61,10 +68,17 @@ function buildNav() {
 
     const salesLinks = salesAllowed() ? salesNavHtml(svg) : '';
 
+    // Yönetici-özel: Raporlar Paneli (Genel Bakış'ın geri gelişi DEĞİL — ayrı rota).
+    const managerLinks = managerAllowed()
+        ? `<div class="nav-separator">Yönetim</div>
+        <a href="#/raporlar" class="nav-item" data-nav="raporlar">${svg('rapor')}<span>Raporlar</span></a>`
+        : '';
+
     document.getElementById('nav-menu').innerHTML = `
         <div class="nav-separator">Operasyon</div>
         ${opLinks}
         ${salesLinks}
+        ${managerLinks}
         <div class="nav-separator">Sonraki Fazlar</div>
         <a class="nav-item disabled" tabindex="-1">${svg('money')}<span>Muhasebe</span><span class="badge badge-muted">Faz</span></a>
         <a class="nav-item disabled" tabindex="-1">${svg('hr')}<span>İnsan Kaynakları</span><span class="badge badge-muted">Faz</span></a>`;
@@ -100,6 +114,7 @@ function resolve(seg) {
     if (seg[0] === 'cari' && seg[1] === 'kart' && seg[2]) return { view: partnerDetailView, params: { id: seg[2] }, navKey: 'cari' };
     if (seg[0] === 'cari') return { view: partnersView, params: {}, navKey: 'cari' };
     if (seg[0] === 'defter') return { view: ledgerView, params: {}, navKey: 'defter' };
+    if (managerAllowed() && seg[0] === 'raporlar') return { view: reportsView, params: {}, navKey: 'raporlar' };
     if (seg[0] === 'foto-eksik') return { view: missingPhotoView, params: {}, navKey: 'g/finished' };
     if (salesAllowed() && seg[0] === 'crm' && seg[1] === 'deal' && seg[2]) return { view: crmDealView, params: { id: seg[2] }, navKey: 'crm' };
     if (salesAllowed() && seg[0] === 'crm' && seg[1] === 'log') return { view: crmLogView, params: {}, navKey: 'crm/log' };

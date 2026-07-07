@@ -514,6 +514,32 @@ export async function getWhereUsed(itemId) {
 export async function getActiveRuns() { return (await ensureState()).activeRuns; }
 export async function getProductionArchive() { return (await ensureState()).productionArchive; }
 
+// Raporlar Paneli: tamamlanmış üretim arşivini aya göre grupla, en yeni 6 ay.
+// Salt-okuma (hiçbir mutasyon yok). completedAt = epoch ms; kayıtsız/eksik
+// tarihli emirler atlanır. "Son 6 ay" = veri bulunan en güncel 6 takvim ayı
+// (sistem saatine göre pencere DEĞİL — arşivde hangi aylar varsa onların en
+// yenisi; boş pencere yerine anlamlı özet verir).
+const TR_MONTHS_SHORT = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
+export async function getProductionMonthlySummary(maxMonths = 6) {
+    const archive = await getProductionArchive();
+    const buckets = new Map();   // 'YYYY-MM' -> {month, label, orderCount, totalQty}
+    for (const o of archive) {
+        if (!o.completedAt) continue;
+        const d = new Date(o.completedAt);
+        if (Number.isNaN(d.getTime())) continue;
+        const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        if (!buckets.has(month)) {
+            buckets.set(month, { month, label: `${TR_MONTHS_SHORT[d.getMonth()]} ${d.getFullYear()}`, orderCount: 0, totalQty: 0 });
+        }
+        const b = buckets.get(month);
+        b.orderCount += 1;
+        b.totalQty += Number(o.qty) || 0;
+    }
+    return [...buckets.values()]
+        .sort((a, b) => b.month.localeCompare(a.month))   // en yeni ay üstte
+        .slice(0, maxMonths);
+}
+
 export async function startProduction(productName, qty, note = '') {
     await ensureState();
     const n = parseInt(qty, 10) || 0;

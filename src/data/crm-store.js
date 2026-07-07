@@ -178,3 +178,40 @@ export async function getOpenOpportunityCount() {
         return crm.pipeline.length;
     } catch { return 0; }
 }
+
+// Raporlar Paneli: CRM hunisi — pipeline'ı stage'e göre grupla + kazanılan/kayıp
+// özeti. getCrm() önbelleğini kullanır (ekstra sorgu açmaz). Değer alanı: canlı
+// kayıtlarda dealValue (string, "118.000 €"), örnek/dev veride value (sayı) —
+// ikisi de okunur. RLS: üretim rolünde getCrm boş döner → doğal 0; ayrıca bu
+// fonksiyon PAKETE yalnız @sales (sales-on) üzerinden girer, build:uretim'de yok.
+function dealValueNum(d) {
+    const s = parseCrmMoney(d.dealValue);
+    if (s != null) return s;
+    const n = Number(d.value);
+    return Number.isFinite(n) ? n : 0;
+}
+export async function getFunnelSummary() {
+    const crm = await getCrm();
+    const byStage = new Map();   // stage -> {stage, count, totalValue}
+    let pipelineValue = 0;
+    for (const d of crm.pipeline) {
+        const stage = normalizeStage(d.stage) || '—';
+        if (!byStage.has(stage)) byStage.set(stage, { stage, count: 0, totalValue: 0 });
+        const g = byStage.get(stage);
+        const v = dealValueNum(d);
+        g.count += 1;
+        g.totalValue += v;
+        pipelineValue += v;
+    }
+    const stages = [...byStage.values()]
+        .sort((a, b) => b.totalValue - a.totalValue || b.count - a.count);
+    const sumVal = (arr) => arr.reduce((s, d) => s + dealValueNum(d), 0);
+    return {
+        stages,
+        pipelineCount: crm.pipeline.length,
+        pipelineValue,
+        completedCount: crm.completed.length,
+        completedValue: sumVal(crm.completed),
+        lostCount: crm.lost.length,
+    };
+}
