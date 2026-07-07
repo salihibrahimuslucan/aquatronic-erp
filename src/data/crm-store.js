@@ -35,7 +35,7 @@ function rowToDeal(r) {
         email: r.email, product: r.product, owner: r.owner, stage: normalizeStage(r.stage),
         dealValue: r.deal_value ?? '', paidValue: r.paid_value ?? '', shipping: r.shipping ?? '',
         lastContact: r.last_contact ?? '', nextAction: r.next_action ?? '', nextDate: r.next_date ?? '',
-        latest: r.latest ?? '', source: r.bucket,
+        latest: r.latest ?? '', source: r.bucket, partnerId: r.partner_id ?? null,
     };
 }
 function dealToRow(d) {
@@ -147,6 +147,16 @@ export async function crmAddActivity(entry) {
 export async function getDealById(id) {
     const crm = await getCrm();
     return [...crm.pipeline, ...crm.completed, ...crm.lost].find((d) => d.id === id) ?? null;
+}
+
+// Cari Kartotek köprüsü: müşteri kartına bağlı fırsatlar (partner_id eşleşmesi
+// — migrasyonda ad-eşleşmesiyle dolduruldu). getCrm() önbelleğini kullanır,
+// ekstra sorgu açmaz; RLS zaten üretim rolünde boş döner (sızıntı yok).
+export async function getDealsForPartner(partnerId) {
+    if (!partnerId) return [];
+    const crm = await getCrm();
+    return [...crm.pipeline, ...crm.completed, ...crm.lost]
+        .filter((d) => String(d.partnerId) === String(partnerId));
 }
 export async function getDealActivities(dealId) {
     const crm = await getCrm();

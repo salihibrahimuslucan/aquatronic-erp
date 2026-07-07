@@ -6,4 +6,5 @@ export const crmPipelineView = null;
 export const crmDealView = null;
 export const crmLogView = null;
 export async function getOpenOpportunityCount() { return null; }
+export async function getPartnerDeals() { return []; }
 export function salesNavHtml() { return ''; }

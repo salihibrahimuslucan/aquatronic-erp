@@ -4,6 +4,8 @@
 export const WITH_SALES = true;
 export { crmPipelineView, crmDealView, crmLogView } from '../views/crm.js';
 export { getOpenOpportunityCount } from '../data/crm-store.js';
+// Cari Kartotek köprüsü: müşteri kartı → bağlı CRM fırsatları.
+export { getDealsForPartner as getPartnerDeals } from '../data/crm-store.js';
 
 // Sidebar'in Satis bolumu — svg() main.js'ten gelir. Etiket dizgileri bilerek
 // burada: uretim paketinde "CRM" izi minifier'a bakmadan sifir olsun.

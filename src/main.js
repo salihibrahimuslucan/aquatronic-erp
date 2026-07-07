@@ -2,6 +2,7 @@ import { stockGroupView, stockDetailView } from './views/stock.js';
 import { activeView, plannedView, poolView } from './views/operations.js';
 import { outsourceView } from './views/outsource.js';
 import { purchasingView, purchaseOrderView } from './views/purchasing.js';
+import { partnersView, partnerDetailView } from './views/partners.js';
 import { ledgerView } from './views/ledger.js';
 import { missingPhotoView } from './views/photos.js';
 import { WITH_SALES, crmPipelineView, crmDealView, crmLogView, salesNavHtml } from '@sales';
@@ -34,6 +35,7 @@ const ICON = {
     crm: '<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 3h-6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"></path>',
     crmlog: '<circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline>',
     cart: '<circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>',
+    cari: '<rect x="2" y="4" width="20" height="16" rx="2"></rect><circle cx="9" cy="10" r="2"></circle><path d="M5 16c0-1.7 1.8-3 4-3s4 1.3 4 3"></path><line x1="15" y1="8" x2="19" y2="8"></line><line x1="15" y1="12" x2="19" y2="12"></line>',
     money: '<line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>',
     hr: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><line x1="19" y1="8" x2="19" y2="14"></line><line x1="22" y1="11" x2="16" y2="11"></line>',
 };
@@ -44,13 +46,15 @@ function svg(name) {
 // ─── Sidebar menüsünü store'daki OP_GROUPS'tan üret ─────────────────────────
 function buildNav() {
     const ops = getOpGroups();
-    // Satın Alma, OP_GROUPS akışının parçası değil (özel rota) — Dış Üretim'den
-    // hemen sonra, Havuz Testi'nden önce sabit olarak eklenir.
+    // Satın Alma + Cari Kartotek, OP_GROUPS akışının parçası değil (özel rota) —
+    // Dış Üretim'den hemen sonra, Havuz Testi'nden önce sabit olarak eklenir.
     const opLinks = [
         ...ops.map((g) => {
             const link = `<a href="#/g/${g.id}" class="nav-item" data-nav="g/${g.id}">${svg(g.icon)}<span>${g.label}</span></a>`;
             if (g.id !== 'dis') return link;
-            return link + `<a href="#/satinalma" class="nav-item" data-nav="satinalma">${svg('cart')}<span>Satın Alma</span></a>`;
+            return link
+                + `<a href="#/satinalma" class="nav-item" data-nav="satinalma">${svg('cart')}<span>Satın Alma</span></a>`
+                + `<a href="#/cari" class="nav-item" data-nav="cari">${svg('cari')}<span>Cari Kartotek</span></a>`;
         }),
         `<a href="#/defter" class="nav-item" data-nav="defter">${svg('defter')}<span>Hareket Defteri</span></a>`,
     ].join('');
@@ -93,6 +97,8 @@ function resolve(seg) {
     if (seg[0] === 'stok' && seg[1] === 'urun' && seg[2]) return { view: stockDetailView, params: { id: seg[2] }, navKey: null };
     if (seg[0] === 'satinalma' && seg[1] === 'po' && seg[2]) return { view: purchaseOrderView, params: { id: seg[2] }, navKey: 'satinalma' };
     if (seg[0] === 'satinalma') return { view: purchasingView, params: {}, navKey: 'satinalma' };
+    if (seg[0] === 'cari' && seg[1] === 'kart' && seg[2]) return { view: partnerDetailView, params: { id: seg[2] }, navKey: 'cari' };
+    if (seg[0] === 'cari') return { view: partnersView, params: {}, navKey: 'cari' };
     if (seg[0] === 'defter') return { view: ledgerView, params: {}, navKey: 'defter' };
     if (seg[0] === 'foto-eksik') return { view: missingPhotoView, params: {}, navKey: 'g/finished' };
     if (salesAllowed() && seg[0] === 'crm' && seg[1] === 'deal' && seg[2]) return { view: crmDealView, params: { id: seg[2] }, navKey: 'crm' };

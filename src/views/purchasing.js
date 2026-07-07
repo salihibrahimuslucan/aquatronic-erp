@@ -4,7 +4,7 @@
 // (src/sales/* ALIAS'ına DOKUNMAZ — bkz. build:uretim kabul testi).
 import {
     getCriticalSuggestion, listPurchaseOrders, getPurchaseOrder, createPurchaseOrder,
-    convertPoToOrder, cancelPo, receivePoLine, stockStatus,
+    convertPoToOrder, cancelPo, receivePoLine, stockStatus, listPartners,
 } from '../data/store.js';
 import { esc, fmtWhen, photoUrl, placeholderHtml } from './helpers.js';
 import { showToast } from '../main.js';
@@ -87,7 +87,9 @@ export const purchasingView = {
         setHeader('Satın Alma', 'Kritik stok → tedarikçi bazlı sipariş önerisi → sipariş kaydı → mal kabul.');
 
         const draw = async () => {
-            const [groups, orders] = await Promise.all([getCriticalSuggestion(), listPurchaseOrders()]);
+            const [groups, orders, tedarikciler] = await Promise.all([
+                getCriticalSuggestion(), listPurchaseOrders(), listPartners('tedarikci'),
+            ]);
             const openOrders = orders.filter((o) => OPEN_STATUSES.includes(o.status));
             const criticalCount = groups.reduce((n, g) => n + g.items.length, 0);
             const unknownGroup = groups.find((g) => !g.supplier);
@@ -159,9 +161,11 @@ export const purchasingView = {
                         title: 'Tedarikçi Belirle ve Sipariş Oluştur',
                         submitLabel: 'Taslak Sipariş Oluştur',
                         bodyHtml: `
-                            <p class="modal-hint">${rows.length} kalem seçildi — bu siparişin gideceği tedarikçiyi yazın.</p>
+                            <p class="modal-hint">${rows.length} kalem seçildi — bu siparişin gideceği tedarikçiyi yazın ya da kayıtlı bir kart seçin.</p>
                             <div class="form-group"><label>Tedarikçi *</label>
-                                <input type="text" name="supplier" required placeholder="ör. Mean Well, Delta, Danfoss..."></div>`,
+                                <input type="text" name="supplier" required list="po-partner-list" placeholder="ör. Mean Well, Delta, Danfoss...">
+                                <datalist id="po-partner-list">${tedarikciler.map((p) => `<option value="${esc(p.name)}"></option>`).join('')}</datalist>
+                            </div>`,
                         onSubmit: async (overlay, close) => {
                             const supplier = overlay.querySelector('input[name=supplier]').value.trim();
                             if (!supplier) throw new Error('Tedarikçi adı boş olamaz.');
@@ -241,7 +245,9 @@ export const purchaseOrderView = {
                 <div class="grid-card bg-glass">
                     <div class="card-header flex-row">
                         <div>
-                            <h2>PO#${po.id} — ${esc(po.supplier)} ${statusPill(po.status)}</h2>
+                            <h2>PO#${po.id} — ${po.partnerId
+                                ? `<a class="deal-link" href="#/cari/kart/${po.partnerId}">${esc(po.supplier)}</a>`
+                                : esc(po.supplier)} ${statusPill(po.status)}</h2>
                             <p class="card-subtitle">${esc(fmtWhen(po.createdAt))} ${po.note ? '· ' + esc(po.note) : ''}</p>
                         </div>
                         <div class="toolbar-actions">

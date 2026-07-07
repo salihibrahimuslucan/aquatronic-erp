@@ -146,8 +146,9 @@ function seed() {
         productionArchive: Array.isArray(opsJson.productionArchive) ? opsJson.productionArchive.slice() : [],
         activityLog: Array.isArray(opsJson.activityLog) ? opsJson.activityLog.slice() : [],
         serials: [],                    // {id, serial, itemId, productName, orderId, status, createdAt}
-        purchaseOrders: [],             // {id, supplier, status, note, createdAt, updatedAt}
+        purchaseOrders: [],             // {id, supplier, partnerId, status, note, createdAt, updatedAt}
         poLines: [],                    // {id, poId, itemId, qty, receivedQty}
+        partners: [],                   // {id, name, kind, contactPerson, email, phone, address, country, note, archived, createdAt, updatedAt}
     };
 }
 
@@ -162,6 +163,11 @@ function migrate(st) {
         const seedBom = seedMap.get(String(it.id));
         if (!it.bom.length && seedBom?.length) it.bom = seedBom.map((r) => ({ ...r }));
     }
+    // Eski localStorage kayıtlarında yeni diziler yok olabilir (satın alma-lite
+    // ve cari kartotek sonradan eklendi) — eksikse boş dizi ata, crash etmesin.
+    if (!Array.isArray(st.purchaseOrders)) st.purchaseOrders = [];
+    if (!Array.isArray(st.poLines)) st.poLines = [];
+    if (!Array.isArray(st.partners)) st.partners = [];
     return st;
 }
 
@@ -853,7 +859,8 @@ export async function deleteOutsourceJob(id) {
 // toplu bulut yüklemesine (loadCloudState) dahil DEĞİL; local modda state.
 function rowToPo(r) {
     return {
-        id: r.id, supplier: r.supplier, status: r.status, note: r.note ?? '',
+        id: r.id, supplier: r.supplier, partnerId: r.partner_id ?? null,
+        status: r.status, note: r.note ?? '',
         createdAt: new Date(r.created_at).getTime(),
         updatedAt: r.updated_at ? new Date(r.updated_at).getTime() : null,
     };
@@ -918,8 +925,10 @@ export async function getPurchaseOrder(id) {
     return { po, lines };
 }
 
-// lines: [{itemId, qty}] — taslak sipariş açar (status='taslak').
-export async function createPurchaseOrder(supplier, lines, note = '') {
+// lines: [{itemId, qty}] — taslak sipariş açar (status='taslak'). partnerId
+// verilmemişse tedarikçi adına göre kart otomatik eşleşir (serbest-metin
+// geri-uyumluluğu: eski akış partner kartı olmadan da çalışmaya devam eder).
+export async function createPurchaseOrder(supplier, lines, note = '', partnerId = null) {
     await ensureState();
     const supplierName = (supplier ?? '').trim();
     const cleanLines = (lines ?? [])
@@ -928,11 +937,18 @@ export async function createPurchaseOrder(supplier, lines, note = '') {
     if (!supplierName) return { ok: false, error: 'Tedarikçi adı boş olamaz.' };
     if (!cleanLines.length) return { ok: false, error: 'En az bir kalem (adet > 0) gerekli.' };
 
+    let resolvedPartnerId = partnerId ?? null;
+    if (!resolvedPartnerId) {
+        const match = (await listPartners('tedarikci'))
+            .find((p) => p.name.toLowerCase() === supplierName.toLowerCase());
+        if (match) resolvedPartnerId = match.id;
+    }
+
     let po;
     if (isCloud()) {
         try {
             po = rowToPo(unwrap(await supabase.from('purchase_orders')
-                .insert({ supplier: supplierName, note: note ?? '' }).select().single()));
+                .insert({ supplier: supplierName, note: note ?? '', partner_id: resolvedPartnerId }).select().single()));
             const rows = cleanLines.map((l) => ({ po_id: po.id, item_id: l.itemId, qty: l.qty }));
             unwrap(await supabase.from('purchase_order_lines').insert(rows).select());
         } catch (e) {
@@ -941,7 +957,7 @@ export async function createPurchaseOrder(supplier, lines, note = '') {
         }
     } else {
         const maxId = state.purchaseOrders.reduce((m, p) => Math.max(m, Number(p.id) || 0), 0);
-        po = { id: maxId + 1, supplier: supplierName, status: 'taslak', note: note ?? '', createdAt: nowTs(), updatedAt: nowTs() };
+        po = { id: maxId + 1, supplier: supplierName, partnerId: resolvedPartnerId, status: 'taslak', note: note ?? '', createdAt: nowTs(), updatedAt: nowTs() };
         state.purchaseOrders.unshift(po);
         const maxLineId = state.poLines.reduce((m, l) => Math.max(m, Number(l.id) || 0), 0);
         cleanLines.forEach((l, i) => state.poLines.push({ id: maxLineId + 1 + i, poId: po.id, itemId: l.itemId, qty: l.qty, receivedQty: 0 }));
@@ -1028,6 +1044,153 @@ export async function receivePoLine(lineId, recvQty) {
     logActivity('po-receive', item?.name ?? `satır #${lineId}`, `+${n} mal kabul (PO#${line.poId})`);
     persist();
     return { ok: true, line };
+}
+
+// ─── Cari Kartotek (partners: müşteri + tedarikçi kartları) ────────────────
+// Tedarikçi kartları operasyonel = herkes okur (RLS: auth.uid() var yeter).
+// Müşteri kartları CRM verisi = yalnız yönetici+satış okur (RLS emsali CRM'le
+// aynı). unit_serials/getPartnerPurchaseOrders gibi talep-üzerine çekilir —
+// ensureState'in toplu bulut yüklemesine dahil değil; yalnız LOKAL modda
+// state.partners tutulur (bulutta her çağrı taze veri çeker).
+function rowToPartner(r) {
+    return {
+        id: r.id, name: r.name, kind: r.kind,
+        contactPerson: r.contact_person ?? '', email: r.email ?? '', phone: r.phone ?? '',
+        address: r.address ?? '', country: r.country ?? '', note: r.note ?? '',
+        archived: !!r.archived,
+        createdAt: r.created_at ? new Date(r.created_at).getTime() : null,
+        updatedAt: r.updated_at ? new Date(r.updated_at).getTime() : null,
+    };
+}
+
+export async function listPartners(kind, includeArchived = false) {
+    if (isCloud()) {
+        let q = supabase.from('partners').select('*').eq('kind', kind).order('name');
+        if (!includeArchived) q = q.eq('archived', false);
+        return unwrap(await q).map(rowToPartner);
+    }
+    await ensureState();
+    return state.partners
+        .filter((p) => p.kind === kind && (includeArchived || !p.archived))
+        .slice().sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function getPartner(id) {
+    if (isCloud()) {
+        const row = unwrap(await supabase.from('partners').select('*').eq('id', id).maybeSingle());
+        return row ? rowToPartner(row) : null;
+    }
+    await ensureState();
+    return state.partners.find((p) => String(p.id) === String(id)) ?? null;
+}
+
+const DUP_RE = /duplicate key|already exists|23505/i;
+
+export async function createPartner({ name, kind, contactPerson = '', email = '', phone = '', address = '', country = '', note = '' } = {}) {
+    const trimmed = (name ?? '').trim();
+    if (!trimmed) return { ok: false, error: 'Kart adı boş olamaz.' };
+    if (!['musteri', 'tedarikci'].includes(kind)) return { ok: false, error: 'Geçersiz kart türü.' };
+    const fields = {
+        name: trimmed, kind,
+        contact_person: contactPerson ?? '', email: email ?? '', phone: phone ?? '',
+        address: address ?? '', country: country ?? '', note: note ?? '',
+    };
+    let partner;
+    if (isCloud()) {
+        try {
+            partner = rowToPartner(unwrap(await supabase.from('partners').insert(fields).select().single()));
+        } catch (e) {
+            return { ok: false, error: DUP_RE.test(e.message) ? 'Bu isimle bir kart zaten kayıtlı.' : e.message };
+        }
+    } else {
+        await ensureState();
+        if (state.partners.some((p) => p.kind === kind && p.name.toLowerCase() === trimmed.toLowerCase())) {
+            return { ok: false, error: 'Bu isimle bir kart zaten kayıtlı.' };
+        }
+        const maxId = state.partners.reduce((m, p) => Math.max(m, Number(p.id) || 0), 0);
+        partner = {
+            id: maxId + 1, name: trimmed, kind, contactPerson, email, phone, address, country, note,
+            archived: false, createdAt: nowTs(), updatedAt: nowTs(),
+        };
+        state.partners.push(partner);
+    }
+    logActivity('partner-add', partner.name, `yeni kart (${kind})`);
+    persist();
+    return { ok: true, partner };
+}
+
+export async function updatePartner(id, patch = {}) {
+    const setFields = {};
+    if (patch.name !== undefined) setFields.name = String(patch.name).trim();
+    if (patch.contactPerson !== undefined) setFields.contact_person = patch.contactPerson ?? '';
+    if (patch.email !== undefined) setFields.email = patch.email ?? '';
+    if (patch.phone !== undefined) setFields.phone = patch.phone ?? '';
+    if (patch.address !== undefined) setFields.address = patch.address ?? '';
+    if (patch.country !== undefined) setFields.country = patch.country ?? '';
+    if (patch.note !== undefined) setFields.note = patch.note ?? '';
+    if (setFields.name === '') return { ok: false, error: 'Kart adı boş olamaz.' };
+
+    if (isCloud()) {
+        try {
+            const row = unwrap(await supabase.from('partners').update(setFields).eq('id', id).select().single());
+            const partner = rowToPartner(row);
+            logActivity('partner-edit', partner.name, 'kart bilgisi güncellendi');
+            return { ok: true, partner };
+        } catch (e) {
+            return { ok: false, error: DUP_RE.test(e.message) ? 'Bu isimle bir kart zaten kayıtlı.' : e.message };
+        }
+    }
+
+    await ensureState();
+    const p = state.partners.find((x) => String(x.id) === String(id));
+    if (!p) return { ok: false, error: 'Kart bulunamadı.' };
+    if (setFields.name && state.partners.some((x) => x !== p && x.kind === p.kind && x.name.toLowerCase() === setFields.name.toLowerCase())) {
+        return { ok: false, error: 'Bu isimle bir kart zaten kayıtlı.' };
+    }
+    if (setFields.name) p.name = setFields.name;
+    if (setFields.contact_person !== undefined) p.contactPerson = setFields.contact_person;
+    if (setFields.email !== undefined) p.email = setFields.email;
+    if (setFields.phone !== undefined) p.phone = setFields.phone;
+    if (setFields.address !== undefined) p.address = setFields.address;
+    if (setFields.country !== undefined) p.country = setFields.country;
+    if (setFields.note !== undefined) p.note = setFields.note;
+    p.updatedAt = nowTs();
+    logActivity('partner-edit', p.name, 'kart bilgisi güncellendi');
+    persist();
+    return { ok: true, partner: p };
+}
+
+export async function setPartnerArchived(id, archived) {
+    if (isCloud()) {
+        const row = unwrap(await supabase.from('partners').update({ archived: !!archived }).eq('id', id).select().single());
+        const partner = rowToPartner(row);
+        logActivity(archived ? 'partner-archive' : 'partner-unarchive', partner.name,
+            archived ? 'arşive taşındı' : 'arşivden geri alındı');
+        return partner;
+    }
+    await ensureState();
+    const p = state.partners.find((x) => String(x.id) === String(id));
+    if (!p) return null;
+    p.archived = !!archived;
+    p.updatedAt = nowTs();
+    logActivity(archived ? 'partner-archive' : 'partner-unarchive', p.name,
+        archived ? 'arşive taşındı' : 'arşivden geri alındı');
+    persist();
+    return p;
+}
+
+// Tedarikçi kartına bağlı satın alma siparişleri (id/durum/satır sayısı/tarih).
+export async function getPartnerPurchaseOrders(partnerId) {
+    if (isCloud()) {
+        const rows = unwrap(await supabase.from('purchase_orders')
+            .select('*, purchase_order_lines(count)')
+            .eq('partner_id', partnerId).order('created_at', { ascending: false }));
+        return rows.map((r) => ({ ...rowToPo(r), lineCount: r.purchase_order_lines?.[0]?.count ?? 0 }));
+    }
+    await ensureState();
+    return state.purchaseOrders.filter((po) => String(po.partnerId) === String(partnerId))
+        .slice().sort((a, b) => b.createdAt - a.createdAt)
+        .map((po) => ({ ...po, lineCount: state.poLines.filter((l) => String(l.poId) === String(po.id)).length }));
 }
 
 // ─── Hareket defteri (global activityLog) ──────────────────────────────────

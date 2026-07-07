@@ -454,6 +454,7 @@ export const crmDealView = {
                     </div>
                     <h2 class="deal-company">${esc(deal.company)}</h2>
                     <p class="deal-project">${esc(deal.project || '')}</p>
+                    ${deal.partnerId ? `<a class="deal-link" href="#/cari/kart/${esc(deal.partnerId)}">🗂 Müşteri Kartı</a>` : ''}
 
                     <div class="deal-meta-grid">
                         ${CARD_FIELDS.map(([label, key]) => `
