@@ -56,8 +56,8 @@
  {
   "key": "pcbcomp",
   "label": "PCB Bileşenleri",
-  "hidden": true,
-  "count": 220
+  "hidden": false,
+  "count": 224
  },
  {
   "key": "vario",
@@ -68,7 +68,7 @@
  {
   "key": "pcbcard",
   "label": "PCB Kartları",
-  "hidden": true,
+  "hidden": false,
   "count": 30
  },
  {
