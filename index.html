@@ -41,9 +41,14 @@
 
         <main class="main-content">
             <header class="main-header">
-                <div class="header-title">
-                    <h1 id="page-title-text">Aktif Üretim</h1>
-                    <p id="page-subtitle-text">Aquatronic üretim ve stok kontrol arayüzü.</p>
+                <div class="header-lead">
+                    <button class="burger-btn" id="burger-btn" aria-label="Menüyü aç/kapat">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+                    </button>
+                    <div class="header-title">
+                        <h1 id="page-title-text">Aktif Üretim</h1>
+                        <p id="page-subtitle-text">Aquatronic üretim ve stok kontrol arayüzü.</p>
+                    </div>
                 </div>
                 <div class="header-actions">
                     <div class="live-clock" id="live-time">--:--:--</div>
@@ -52,6 +57,8 @@
 
             <div class="viewport" id="view-root"></div>
         </main>
+
+        <div class="nav-backdrop" id="nav-backdrop"></div>
     </div>
 
     <div class="login-overlay" id="login-overlay" hidden>

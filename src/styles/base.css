@@ -964,6 +964,41 @@ input[readonly] { opacity: 0.6; cursor: not-allowed; }
     grid-column: 1 / -1;
 }
 
+/* Burger menü (mobil) — masaüstünde gizli, ≤900px'te header'da görünür.
+   Sidebar off-canvas drawer'a döner, backdrop ile açılır/kapanır. */
+.header-lead {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+}
+.burger-btn {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    flex-shrink: 0;
+    border-radius: 12px;
+    border: 1px solid var(--border-glass);
+    background: var(--bg-glass, rgba(18, 27, 56, 0.45));
+    color: var(--neon-cyan, #00f5d4);
+    cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease;
+}
+.burger-btn:hover { border-color: var(--neon-cyan, #00f5d4); }
+.burger-btn svg { width: 22px; height: 22px; }
+.nav-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(4, 7, 20, 0.62);
+    z-index: 99;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.28s ease;
+}
+.app-container.nav-open .nav-backdrop { opacity: 1; pointer-events: auto; }
+
 /* Responsive Adjustments */
 @media (max-width: 1200px) {
     .kpi-grid { grid-template-columns: repeat(2, 1fr); }
@@ -971,10 +1006,14 @@ input[readonly] { opacity: 0.6; cursor: not-allowed; }
 }
 
 @media (max-width: 900px) {
-    .sidebar { width: 70px; padding: 16px 8px; }
-    .brand-info, .sidebar-footer, .nav-separator { display: none; }
-    .nav-item span, .nav-item .badge { display: none; }
-    .main-content { margin-left: 70px; padding: 16px; }
+    .burger-btn { display: inline-flex; }
+    .sidebar {
+        transform: translateX(-100%);
+        transition: transform 0.28s ease;
+        box-shadow: 4px 0 28px rgba(0, 0, 0, 0.55);
+    }
+    .app-container.nav-open .sidebar { transform: translateX(0); }
+    .main-content { margin-left: 0; padding: 16px; }
     .kpi-grid { grid-template-columns: 1fr; }
     .detail-layout { grid-template-columns: 1fr; }
     .product-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }

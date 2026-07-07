@@ -122,7 +122,13 @@ function resolve(seg) {
     return homeRoute();
 }
 
+// Mobil burger drawer'ı — gezinmede (nav linki → hashchange) otomatik kapanır.
+function closeNavDrawer() {
+    document.querySelector('.app-container')?.classList.remove('nav-open');
+}
+
 async function renderCurrent() {
+    closeNavDrawer();
     const { view, params, navKey } = resolve(parseHash());
     document.querySelectorAll('.nav-item[data-nav]').forEach((el) => {
         el.classList.toggle('active', el.dataset.nav === navKey);
@@ -202,6 +208,10 @@ async function boot() {
         renderUserFooter();
     }
     buildNav();
+    // Mobil burger: header düğmesi drawer'ı aç/kapa; backdrop tıklaması kapatır.
+    const appEl = document.querySelector('.app-container');
+    document.getElementById('burger-btn')?.addEventListener('click', () => appEl?.classList.toggle('nav-open'));
+    document.getElementById('nav-backdrop')?.addEventListener('click', closeNavDrawer);
     window.addEventListener('hashchange', renderCurrent);
     initClock();
     renderCurrent();
