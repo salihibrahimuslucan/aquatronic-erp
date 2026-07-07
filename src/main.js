@@ -184,8 +184,14 @@ function showLogin() {
                 errEl.hidden = false;
             }
         };
-        document.getElementById('login-go').addEventListener('click', tryLogin);
-        overlay.addEventListener('keydown', (e) => { if (e.key === 'Enter') tryLogin(); });
+        // <form> submit: telefon klavyesinin "Git/Enter" tuşu native submit eder →
+        // buton klavyenin altında kalsa bile giriş yapılabilir (mobil giriş bug'ı).
+        const form = document.getElementById('login-form');
+        form.addEventListener('submit', (e) => { e.preventDefault(); tryLogin(); });
+        // Emniyet: form yoksa (eski DOM) düğme tıklaması hâlâ çalışsın.
+        document.getElementById('login-go').addEventListener('click', (e) => {
+            if (!form) { e.preventDefault(); tryLogin(); }
+        });
     });
 }
 

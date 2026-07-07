@@ -66,9 +66,11 @@
             <img src="./aquatronic-logo.png" alt="Aquatronic" class="login-logo">
             <h2>AQUATRONIC <span>ERP</span></h2>
             <p class="login-sub">Devam etmek için giriş yapın</p>
-            <input type="email" id="login-email" placeholder="E-posta" autocomplete="username">
-            <input type="password" id="login-pass" placeholder="Şifre" autocomplete="current-password">
-            <button class="btn btn-primary" id="login-go">Giriş Yap</button>
+            <form id="login-form" class="login-form">
+                <input type="email" id="login-email" placeholder="E-posta" autocomplete="username" inputmode="email" autocapitalize="none" spellcheck="false" enterkeyhint="next">
+                <input type="password" id="login-pass" placeholder="Şifre" autocomplete="current-password" enterkeyhint="go">
+                <button class="btn btn-primary" id="login-go" type="submit">Giriş Yap</button>
+            </form>
             <p class="login-error" id="login-error" hidden></p>
         </div>
     </div>
