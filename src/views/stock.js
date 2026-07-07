@@ -571,6 +571,7 @@ function groupOf(p) {
     const map = {
         finished: 'finished', lighting: 'production', vario: 'production', switch: 'production',
         nozzle: 'production', powerbox: 'production', cable: 'cable', pano: 'pano', motor: 'motor',
+        pcbcard: 'elektronik', pcbcomp: 'elektronik',
     };
     return map[p.family] ?? 'finished';
 }

@@ -1,6 +1,7 @@
 import { stockGroupView, stockDetailView } from './views/stock.js';
 import { activeView, plannedView, poolView } from './views/operations.js';
 import { outsourceView } from './views/outsource.js';
+import { purchasingView, purchaseOrderView } from './views/purchasing.js';
 import { ledgerView } from './views/ledger.js';
 import { missingPhotoView } from './views/photos.js';
 import { WITH_SALES, crmPipelineView, crmDealView, crmLogView, salesNavHtml } from '@sales';
@@ -26,6 +27,7 @@ const ICON = {
     cable: '<path d="M9 2v6"></path><path d="M15 2v6"></path><path d="M9 8h6v3a3 3 0 0 1-3 3v0a3 3 0 0 1-3-3V8z"></path><path d="M12 14v4a2 2 0 0 0 2 2h1"></path>',
     pano: '<rect x="2" y="2" width="20" height="8" rx="2"></rect><rect x="2" y="14" width="20" height="8" rx="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line>',
     motor: '<circle cx="12" cy="12" r="4"></circle><path d="M12 2v4M12 18v4M2 12h4M18 12h4"></path>',
+    chip: '<rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line><line x1="20" y1="9" x2="23" y2="9"></line><line x1="20" y1="14" x2="23" y2="14"></line><line x1="1" y1="9" x2="4" y2="9"></line><line x1="1" y1="14" x2="4" y2="14"></line>',
     dis: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path>',
     pool: '<path d="M2 12h20M2 12c2 0 2-2 4-2s2 2 4 2 2-2 4-2 2 2 4 2 2-2 4-2M2 18c2 0 2-2 4-2s2 2 4 2 2-2 4-2 2 2 4 2 2-2 4-2"></path>',
     defter: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line>',
@@ -42,8 +44,14 @@ function svg(name) {
 // ─── Sidebar menüsünü store'daki OP_GROUPS'tan üret ─────────────────────────
 function buildNav() {
     const ops = getOpGroups();
+    // Satın Alma, OP_GROUPS akışının parçası değil (özel rota) — Dış Üretim'den
+    // hemen sonra, Havuz Testi'nden önce sabit olarak eklenir.
     const opLinks = [
-        ...ops.map((g) => `<a href="#/g/${g.id}" class="nav-item" data-nav="g/${g.id}">${svg(g.icon)}<span>${g.label}</span></a>`),
+        ...ops.map((g) => {
+            const link = `<a href="#/g/${g.id}" class="nav-item" data-nav="g/${g.id}">${svg(g.icon)}<span>${g.label}</span></a>`;
+            if (g.id !== 'dis') return link;
+            return link + `<a href="#/satinalma" class="nav-item" data-nav="satinalma">${svg('cart')}<span>Satın Alma</span></a>`;
+        }),
         `<a href="#/defter" class="nav-item" data-nav="defter">${svg('defter')}<span>Hareket Defteri</span></a>`,
     ].join('');
 
@@ -54,7 +62,6 @@ function buildNav() {
         ${opLinks}
         ${salesLinks}
         <div class="nav-separator">Sonraki Fazlar</div>
-        <a class="nav-item disabled" tabindex="-1">${svg('cart')}<span>Satın Alma</span><span class="badge badge-muted">Faz</span></a>
         <a class="nav-item disabled" tabindex="-1">${svg('money')}<span>Muhasebe</span><span class="badge badge-muted">Faz</span></a>
         <a class="nav-item disabled" tabindex="-1">${svg('hr')}<span>İnsan Kaynakları</span><span class="badge badge-muted">Faz</span></a>`;
 }
@@ -84,6 +91,8 @@ function resolve(seg) {
         }
     }
     if (seg[0] === 'stok' && seg[1] === 'urun' && seg[2]) return { view: stockDetailView, params: { id: seg[2] }, navKey: null };
+    if (seg[0] === 'satinalma' && seg[1] === 'po' && seg[2]) return { view: purchaseOrderView, params: { id: seg[2] }, navKey: 'satinalma' };
+    if (seg[0] === 'satinalma') return { view: purchasingView, params: {}, navKey: 'satinalma' };
     if (seg[0] === 'defter') return { view: ledgerView, params: {}, navKey: 'defter' };
     if (seg[0] === 'foto-eksik') return { view: missingPhotoView, params: {}, navKey: 'g/finished' };
     if (salesAllowed() && seg[0] === 'crm' && seg[1] === 'deal' && seg[2]) return { view: crmDealView, params: { id: seg[2] }, navKey: 'crm' };

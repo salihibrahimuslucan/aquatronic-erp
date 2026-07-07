@@ -50,6 +50,11 @@ export const OP_GROUPS = [
         ] },
     { id: 'pano',  label: 'Pano / PSU', icon: 'pano', type: 'stock',
         subs: [{ key: 'pano', label: 'Pano / PSU', match: { family: 'pano' } }] },
+    { id: 'elektronik', label: 'Elektronik', icon: 'chip', type: 'stock',
+        subs: [
+            { key: 'pcbcard', label: 'PCB Kartları',    match: { family: 'pcbcard' } },
+            { key: 'pcbcomp', label: 'PCB Bileşenleri', match: { family: 'pcbcomp' } },
+        ] },
     { id: 'motor', label: 'Motor', icon: 'motor', type: 'stock',
         subs: [{ key: 'motor', label: 'Motor', match: { family: 'motor' } }] },
     { id: 'dis',   label: 'Dış Üretim',  icon: 'dis',  type: 'outsource' },
@@ -141,6 +146,8 @@ function seed() {
         productionArchive: Array.isArray(opsJson.productionArchive) ? opsJson.productionArchive.slice() : [],
         activityLog: Array.isArray(opsJson.activityLog) ? opsJson.activityLog.slice() : [],
         serials: [],                    // {id, serial, itemId, productName, orderId, status, createdAt}
+        purchaseOrders: [],             // {id, supplier, status, note, createdAt, updatedAt}
+        poLines: [],                    // {id, poId, itemId, qty, receivedQty}
     };
 }
 
@@ -839,6 +846,190 @@ export async function deleteOutsourceJob(id) {
     persist();
 }
 
+// ─── Satın Alma-Lite ────────────────────────────────────────────────────────
+// Akış: kritik stok → tedarikçi bazlı sipariş önerisi → taslak PO → siparişe
+// çevir → mal kabul (receive_po_line RPC, apply_stock_move ile ledger'a girer).
+// unit_serials/getSerialsForItem gibi talep-üzerine çekilir — ensureState'in
+// toplu bulut yüklemesine (loadCloudState) dahil DEĞİL; local modda state.
+function rowToPo(r) {
+    return {
+        id: r.id, supplier: r.supplier, status: r.status, note: r.note ?? '',
+        createdAt: new Date(r.created_at).getTime(),
+        updatedAt: r.updated_at ? new Date(r.updated_at).getTime() : null,
+    };
+}
+function rowToPoLine(r) {
+    return {
+        id: r.id, poId: r.po_id, itemId: r.item_id,
+        qty: Number(r.qty) || 0, receivedQty: Number(r.received_qty) || 0,
+    };
+}
+
+// Kritik stok (qty<=critical, arşiv hariç) → tedarikçiye göre gruplu öneri.
+// Önerilen sipariş = max(1, critical*2 - qty) — basit alt sınır kuralı,
+// ekranda satır bazında düzenlenebilir. critical<=0 (hiç eşik girilmemiş) hariç
+// tutulur — yoksa "eşik hiç ayarlanmamış" kalemler anlamsızca "kritik" sayılır
+// ve öneri listesini gürültüyle boğar (canlı veride ~70 kalem bu durumda).
+export async function getCriticalSuggestion() {
+    const items = await getItems();   // archived hariç
+    const groups = new Map();         // supplier key -> {supplier,label,items:[]}
+    for (const it of items) {
+        if (it.critical <= 0) continue;
+        if (it.qty > it.critical) continue;
+        const supplier = (it.supplier || '').trim();
+        const key = supplier || '__unknown__';
+        if (!groups.has(key)) groups.set(key, { supplier, label: supplier || 'Tedarikçi belirsiz', items: [] });
+        const suggestedQty = Math.max(1, it.critical * 2 - it.qty);
+        groups.get(key).items.push({ ...it, suggestedQty });
+    }
+    return [...groups.values()].sort((a, b) => b.items.length - a.items.length);
+}
+
+// Siparişler tablosu için satır sayısı da lazım — embedded count ile N+1'den kaçın.
+export async function listPurchaseOrders() {
+    if (isCloud()) {
+        const rows = unwrap(await supabase.from('purchase_orders')
+            .select('*, purchase_order_lines(count)').order('created_at', { ascending: false }));
+        return rows.map((r) => ({ ...rowToPo(r), lineCount: r.purchase_order_lines?.[0]?.count ?? 0 }));
+    }
+    await ensureState();
+    return state.purchaseOrders.slice().sort((a, b) => b.createdAt - a.createdAt)
+        .map((po) => ({ ...po, lineCount: state.poLines.filter((l) => String(l.poId) === String(po.id)).length }));
+}
+
+// PO detayı: satırlara çözülmüş komponent (item) bilgisiyle birlikte döner
+// (kalem adı/foto/mevcut stok — detay ekranında ayrıca getItemById gerekmesin).
+export async function getPurchaseOrder(id) {
+    if (isCloud()) {
+        const poRow = unwrap(await supabase.from('purchase_orders').select('*').eq('id', id).maybeSingle());
+        if (!poRow) return null;
+        const lineRows = unwrap(await supabase.from('purchase_order_lines')
+            .select('*, items(*)').eq('po_id', id).order('id'));
+        return {
+            po: rowToPo(poRow),
+            lines: lineRows.map((r) => ({ ...rowToPoLine(r), item: r.items ? rowToItem(r.items) : null })),
+        };
+    }
+    await ensureState();
+    const po = state.purchaseOrders.find((p) => String(p.id) === String(id));
+    if (!po) return null;
+    const lines = state.poLines.filter((l) => String(l.poId) === String(id))
+        .map((l) => ({ ...l, item: state.items.find((i) => String(i.id) === String(l.itemId)) ?? null }));
+    return { po, lines };
+}
+
+// lines: [{itemId, qty}] — taslak sipariş açar (status='taslak').
+export async function createPurchaseOrder(supplier, lines, note = '') {
+    await ensureState();
+    const supplierName = (supplier ?? '').trim();
+    const cleanLines = (lines ?? [])
+        .map((l) => ({ itemId: Number(l.itemId), qty: parseInt(l.qty, 10) || 0 }))
+        .filter((l) => l.itemId && l.qty > 0);
+    if (!supplierName) return { ok: false, error: 'Tedarikçi adı boş olamaz.' };
+    if (!cleanLines.length) return { ok: false, error: 'En az bir kalem (adet > 0) gerekli.' };
+
+    let po;
+    if (isCloud()) {
+        try {
+            po = rowToPo(unwrap(await supabase.from('purchase_orders')
+                .insert({ supplier: supplierName, note: note ?? '' }).select().single()));
+            const rows = cleanLines.map((l) => ({ po_id: po.id, item_id: l.itemId, qty: l.qty }));
+            unwrap(await supabase.from('purchase_order_lines').insert(rows).select());
+        } catch (e) {
+            if (po) { try { await supabase.from('purchase_orders').delete().eq('id', po.id); } catch { /* best effort temizlik */ } }
+            return { ok: false, error: e.message };
+        }
+    } else {
+        const maxId = state.purchaseOrders.reduce((m, p) => Math.max(m, Number(p.id) || 0), 0);
+        po = { id: maxId + 1, supplier: supplierName, status: 'taslak', note: note ?? '', createdAt: nowTs(), updatedAt: nowTs() };
+        state.purchaseOrders.unshift(po);
+        const maxLineId = state.poLines.reduce((m, l) => Math.max(m, Number(l.id) || 0), 0);
+        cleanLines.forEach((l, i) => state.poLines.push({ id: maxLineId + 1 + i, poId: po.id, itemId: l.itemId, qty: l.qty, receivedQty: 0 }));
+    }
+    logActivity('po-create', po.supplier, `Taslak sipariş açıldı — ${cleanLines.length} kalem (PO#${po.id})`);
+    persist();
+    return { ok: true, po };
+}
+
+// Var olan taslak/açık siparişe satır ekle (aynı tedarikçiye ek kalem).
+export async function addPoLine(poId, itemId, qty) {
+    const n = parseInt(qty, 10) || 0;
+    if (n <= 0) return { ok: false, error: 'Adet 0\'dan büyük olmalı.' };
+    let line;
+    if (isCloud()) {
+        try {
+            line = rowToPoLine(unwrap(await supabase.from('purchase_order_lines')
+                .insert({ po_id: Number(poId), item_id: Number(itemId), qty: n }).select().single()));
+        } catch (e) { return { ok: false, error: e.message }; }
+    } else {
+        await ensureState();
+        const maxLineId = state.poLines.reduce((m, l) => Math.max(m, Number(l.id) || 0), 0);
+        line = { id: maxLineId + 1, poId: Number(poId), itemId: Number(itemId), qty: n, receivedQty: 0 };
+        state.poLines.push(line);
+    }
+    logActivity('po-line-add', `PO#${poId}`, `satır eklendi (kalem #${itemId} ×${n})`);
+    persist();
+    return { ok: true, line };
+}
+
+async function setPoStatus(id, status) {
+    if (isCloud()) {
+        unwrap(await supabase.from('purchase_orders').update({ status }).eq('id', id).select().single());
+    } else {
+        await ensureState();
+        const po = state.purchaseOrders.find((p) => String(p.id) === String(id));
+        if (po) { po.status = status; po.updatedAt = nowTs(); }
+    }
+    logActivity('po-status', `PO#${id}`, `durum → ${status}`);
+    persist();
+}
+// Taslağı siparişe çevir (tedarikçiye fiilen gönderildi anlamında).
+export async function convertPoToOrder(id) { return setPoStatus(id, 'siparis'); }
+export async function cancelPo(id) { return setPoStatus(id, 'iptal'); }
+
+// Mal kabul: satırın received_qty'sini artırır + items/ledger'a atomik giriş
+// yapar (bulutta receive_po_line RPC → apply_stock_move) + PO durumu otomatik
+// günceller (tüm satırlar tam=kapandi, kısmen=kismi).
+export async function receivePoLine(lineId, recvQty) {
+    const n = parseInt(recvQty, 10) || 0;
+    if (n <= 0) return { ok: false, error: 'Miktar 0\'dan büyük olmalı.' };
+
+    if (isCloud()) {
+        try {
+            const row = unwrap(await supabase.rpc('receive_po_line', { line_id: Number(lineId), recv_qty: n }));
+            invalidate();   // items.qty ledger üzerinden değişti — bir sonraki ekran taze çeker
+            logActivity('po-receive', `PO satırı #${lineId}`, `+${n} mal kabul`);
+            return { ok: true, line: rowToPoLine(row) };
+        } catch (e) {
+            return { ok: false, error: e.message };
+        }
+    }
+
+    await ensureState();
+    const line = state.poLines.find((l) => String(l.id) === String(lineId));
+    if (!line) return { ok: false, error: 'Sipariş satırı bulunamadı.' };
+    const po = state.purchaseOrders.find((p) => String(p.id) === String(line.poId));
+    if (po && ['iptal', 'kapandi'].includes(po.status)) {
+        return { ok: false, error: `Sipariş ${po.status} durumunda mal kabul yapılamaz.` };
+    }
+    line.receivedQty += n;
+    const item = state.items.find((i) => String(i.id) === String(line.itemId));
+    if (item) {
+        item.qty += n;
+        item.history.unshift({ type: 'in', qty: n, date: trDate(), note: `Mal kabul — PO#${line.poId}`, ts: nowTs(), user: _currentUser });
+    }
+    if (po) {
+        const poLines = state.poLines.filter((l) => String(l.poId) === String(po.id));
+        const totalQty = poLines.reduce((s, l) => s + l.qty, 0);
+        const totalRecv = poLines.reduce((s, l) => s + l.receivedQty, 0);
+        po.status = totalRecv >= totalQty ? 'kapandi' : (totalRecv > 0 ? 'kismi' : po.status);
+        po.updatedAt = nowTs();
+    }
+    logActivity('po-receive', item?.name ?? `satır #${lineId}`, `+${n} mal kabul (PO#${line.poId})`);
+    persist();
+    return { ok: true, line };
+}
+
 // ─── Hareket defteri (global activityLog) ──────────────────────────────────
 export async function getActivityLog() {
     await ensureState();
@@ -859,7 +1050,7 @@ export function formatMoney(value, currency = 'EUR') {
 export function familyIcon(family) {
     const icons = {
         finished: '🎛️', lighting: '💡', vario: '💧', switch: '⚙️', nozzle: '💦',
-        powerbox: '⚡', cable: '🔌', pano: '🗄️', motor: '🔩',
+        powerbox: '⚡', cable: '🔌', pano: '🗄️', motor: '🔩', pcbcard: '📟', pcbcomp: '🧮',
     };
     return icons[family] || '📦';
 }
