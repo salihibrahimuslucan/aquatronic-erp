@@ -1,0 +1,9 @@
+[
+  { "id": 1, "name": "DemoLIGHT 100",   "family": "finished", "cat": "Lighting", "qty": 40, "critical": 10, "note": "", "photo": null, "box_qty": null, "weight": null, "tr": "demo aydinlatma", "archived": false },
+  { "id": 2, "name": "DemoSWITCH 100",  "family": "finished", "cat": "Switch",   "qty": 12, "critical": 5,  "note": "", "photo": null, "box_qty": null, "weight": null, "tr": "demo switch", "archived": false },
+  { "id": 3, "name": "DemoVARIO 150",   "family": "finished", "cat": "Vario",    "qty": 20, "critical": 8,  "note": "", "photo": null, "box_qty": null, "weight": null, "tr": "demo vario", "archived": false },
+  { "id": 101, "name": "Demo LED Driver IC", "family": "component", "cat": "IC", "qty": 500, "critical": 50, "note": "", "photo": null, "box_qty": null, "weight": null, "tr": "demo ic", "archived": false },
+  { "id": 102, "name": "Demo Inductor 10uH", "family": "component", "cat": "Inductor", "qty": 300, "critical": 30, "note": "", "photo": null, "box_qty": null, "weight": null, "tr": "demo bobin", "archived": false },
+  { "id": 103, "name": "Demo Relay Module",  "family": "component", "cat": "Relay", "qty": 80, "critical": 10, "note": "", "photo": null, "box_qty": null, "weight": null, "tr": "demo role", "archived": false },
+  { "id": 104, "name": "Demo PSU 24V",       "family": "component", "cat": "PSU", "qty": 25, "critical": 5, "note": "", "photo": null, "box_qty": null, "weight": null, "tr": "demo guc kaynagi", "archived": false }
+]

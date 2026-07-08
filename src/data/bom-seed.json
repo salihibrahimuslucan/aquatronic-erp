@@ -1,0 +1,5 @@
+[
+  { "productId": 1, "bom": [ { "itemId": 101, "qty": 2 }, { "itemId": 102, "qty": 1 } ] },
+  { "productId": 2, "bom": [ { "itemId": 103, "qty": 4 } ] },
+  { "productId": 3, "bom": [ { "itemId": 101, "qty": 1 }, { "itemId": 104, "qty": 2 } ] }
+]
