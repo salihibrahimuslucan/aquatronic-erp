@@ -13,7 +13,8 @@ kanıtladım.
 Bu depo gerçek bir işletmenin canlı sistemi olduğu için **git geçmişi dahil** gerçek stok, BOM,
 tedarikçi ve CRM (müşteri/teklif/anlaşma) verisi public'e alınmadan önce tamamen temizlendi ve
 aynı şemada uydurma örnek verilerle değiştirildi (`src/data/sample-data.js`, `bom-seed.json`,
-`items.json`, `outsource.json`, `ops.json`). Kod ve mimari gerçek, veri değil.
+`items.json`, `outsource.json`, `ops.json`). Gerçek ürün fotoğrafları ve BOM çıkarım
+çıktıları da (git geçmişi dahil) depodan çıkarıldı. Kod ve mimari gerçek, veri değil.
 
 ## Ne yapıyor
 

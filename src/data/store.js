@@ -23,8 +23,8 @@ const itemsJson = loadJson('items');
 const outsourceJson = loadJson('outsource') ?? [];
 const opsJson = loadJson('ops') ?? {};
 
-// Gerçek kaynaklardan (STOK.xlsx ÜRETİM sayfaları + scv CSV) çıkarılmış BOM
-// tohumu — yalnız BOŞ reçeteleri doldurur, kullanıcının girdiğini asla ezmez.
+// BOM tohumu (bu depoda sentetik örnek) — yalnız BOŞ reçeteleri doldurur,
+// kullanıcının girdiğini asla ezmez.
 import bomSeed from './bom-seed.json';
 
 // ─── Menü grupları (operasyon tarafı) ────────────────────────────────────
@@ -65,8 +65,7 @@ export function getOpGroups() { return OP_GROUPS; }
 export function getGroup(id) { return OP_GROUPS.find((g) => g.id === id) ?? null; }
 
 // ─── Normalleştirme ───────────────────────────────────────────────────────
-// familyOrig ?? family: kürasyon-öncesi orijinal npoint sekmesini geri verir
-// (uydurma "enclosure/box-split" kaldırıldı — netlify grupları esas).
+// familyOrig ?? family: kürasyon-öncesi orijinal kaynak sekmesini geri verir.
 function effectiveFamily(raw) {
     return raw.familyOrig ?? raw.family ?? raw.cat ?? 'diger';
 }
