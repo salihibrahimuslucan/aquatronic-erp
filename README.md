@@ -4,8 +4,8 @@ Küçük bir üretim atölyesi için baştan yazılmış bir ERP: stok, üretim 
 reçetesi), CRM satış hattı, satın alma ve cari kartotek — tek sayfa uygulama, gerçek üretimde
 kullanılıyor.
 
-Claude ile birlikte geliştirildi: mimariyi, veri modelini ve güvenlik sınırlarını (aşağıda) ben
-belirledim, uygulamayı Claude'a yaptırdım, her fazı gerçek kullanıcı akışlarına karşı test edip
+Mimariyi, veri modelini ve güvenlik sınırlarını (aşağıda) ben
+belirledim,her fazı gerçek kullanıcı akışlarına karşı test edip
 kanıtladım.
 
 ## Veri hakkında not
