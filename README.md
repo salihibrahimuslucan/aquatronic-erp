@@ -1,60 +1,83 @@
 # Aquatronic ERP
 
-Küçük bir üretim atölyesi için baştan yazılmış bir ERP: stok, üretim emirleri, BOM (ürün
-reçetesi), CRM satış hattı, satın alma ve cari kartotek — tek sayfa uygulama, gerçek üretimde
-kullanılıyor.
+A single-page ERP built from scratch for a small manufacturing workshop — inventory,
+production orders, BOMs, a CRM sales pipeline, purchasing and a partner ledger — in
+production use at a real business.
 
-Mimariyi, veri modelini ve güvenlik sınırlarını (aşağıda) ben
-belirledim,her fazı gerçek kullanıcı akışlarına karşı test edip
-kanıtladım.
+I designed the architecture, the data model and the security boundaries described
+below, and verified every phase against real user workflows.
 
-## Veri hakkında not
+## A note about the data
 
-Bu depo gerçek bir işletmenin canlı sistemi olduğu için **git geçmişi dahil** gerçek stok, BOM,
-tedarikçi ve CRM (müşteri/teklif/anlaşma) verisi public'e alınmadan önce tamamen temizlendi ve
-aynı şemada uydurma örnek verilerle değiştirildi (`src/data/sample-data.js`, `bom-seed.json`,
-`items.json`, `outsource.json`, `ops.json`). Gerçek ürün fotoğrafları ve BOM çıkarım
-çıktıları da (git geçmişi dahil) depodan çıkarıldı. Kod ve mimari gerçek, veri değil.
+This repository was the live system of a real business. Before it went public, all real
+inventory, BOM, supplier and CRM data (customers, quotes, deals) was scrubbed — **git
+history included** — and replaced with synthetic samples in the same schema
+(`src/data/sample-data.js`, `items.json`, `bom-seed.json`, `outsource.json`). Real
+product photos and BOM-extraction outputs were removed the same way, also from the git
+history. The code and the architecture are real; the data is not.
 
-## Ne yapıyor
+## What it does
 
-- **Stok:** foto-öncelikli ürün kataloğu, kritik eşik takibi, sayım modu.
-- **Üretim:** planlı → üretimde → havuz testi → bitmiş akışı; tamamlanınca BOM otomatik tüketilir
-  ve stoğa geçer (tek atomik işlem, `complete_production_order` RPC).
-- **CRM:** satış hattı (lead → teklif → müzakere → kazanıldı/kayıp), kazanılan fırsat tek tıkla
-  üretim emrine bağlanır (`source_deal_id` köprüsü).
-- **Satın alma:** kritik stoktan tedarikçi bazlı sipariş önerisi → sipariş → mal kabul.
-- **Cari kartotek:** müşteri/tedarikçi kartları, satın alma ve CRM fırsatlarıyla ilişkili.
-- **Roller:** yönetici / satış / üretim — CRM verisi (fiyat, iletişim) yalnızca yetkili rollere
-  görünür; üretim rolü fırsat rozetini görür ama içeriğini göremez.
+- **Inventory** — photo-first product catalog, critical-threshold tracking, stocktake mode.
+- **Production** — planned → in production → pool test → finished; completing an order
+  consumes the BOM and books the finished goods into stock as a single atomic operation
+  (the `complete_production_order` RPC).
+- **CRM** — sales pipeline (lead → quote → negotiation → won/lost); a won deal becomes a
+  production order in one click (the `source_deal_id` bridge).
+- **Purchasing** — supplier-grouped order suggestions generated from critical stock →
+  purchase order → goods receipt.
+- **Partner ledger** — customer/supplier cards, linked to purchasing and CRM deals.
+- **Roles** — admin / sales / production. CRM data (prices, contacts) is visible only to
+  authorized roles; the production role can see that an order originates from a deal,
+  but not what is in it.
 
-## Güvenlik mimarisi (öğrenilen dersler)
+## Architecture
 
-- **İki build hedefi:** `npm run build` (tam uygulama) vs `npm run build:uretim` — ikincisi
-  satış modülünü (`crm.js`, `crm-store.js`) modül grafiğine hiç sokmaz, `build-uretim.mjs` ile
-  paketten fiziksel olarak çıkarır. Üretim rolüne dağıtılan paket satış/fiyat kodunu **hiç
-  içermez** — sadece "gizlenmiş" değil, bundle'da yok.
-- **RLS (Row-Level Security):** her tablo Supabase RLS ile korunuyor; yetkisiz rol denemesi
-  gerçek kullanıcı hesabıyla test edilip sıfır satır döndüğü doğrulandı.
-- **Bu iki nokta, geliştirme sırasında bir kez yanlış yapılıp sonradan düzeltildi** — build
-  hedefi ayrımı da RLS de ilk sürümde yoktu, gerçek bir veri sızıntısı riskinden sonra eklendi.
+Vite + vanilla ES modules, bundled into a single self-contained HTML file. The app grew
+in phases:
 
-## Fazlar
+- **Phase 0 — static:** Vite + vanilla ES modules, localStorage persistence.
+- **Phase 1 — Supabase:** cloud store, login, roles, Row-Level Security.
+- **Phase 2 — bridges:** CRM deal → production order, serial-number tracking, file/photo
+  management.
+- **Phase 3 (current) — rounding out:** partner ledger, purchasing-lite, reports panel,
+  mobile UX.
 
-- **Faz 0 — statik:** Vite + vanilla ES modules, localStorage.
-- **Faz 1 — Supabase:** bulut store, giriş, roller, RLS.
-- **Faz 2 — köprüler:** CRM fırsatı → üretim emri, seri no takibi, dosya/foto yönetimi.
-- **Faz 3 (mevcut) — vitrin-tamlık:** cari kartotek, satın alma-lite, raporlar paneli, mobil UX.
+## Security (lessons learned)
 
-## Çalıştırma
+- **Two build targets.** `npm run build` produces the full app; `npm run build:uretim`
+  ("üretim" = production floor) produces a build in which the sales module
+  (`src/views/crm.js`, `src/data/crm-store.js`) never enters the module graph — a
+  mode-dependent alias swaps it out, and `tools/build-uretim.mjs` then runs a leak scan
+  over the emitted bundle. The package deployed to the production role contains **no
+  sales or pricing code at all** — not hidden behind a flag, physically absent from the
+  bundle.
+- **Row-Level Security.** Every table is protected by Supabase RLS. Unauthorized access
+  was tested with a real user account in the wrong role and confirmed to return zero
+  rows.
+- **Both of these were done wrong once and then fixed** — neither the build-target split
+  nor RLS existed in the first version; both were added after a real data-leak risk
+  surfaced during development.
+
+## Run the demo locally
 
 ```bash
 npm install
-npm run dev            # yerel mod, sample-data.js ile (Supabase yapılandırılmadan)
-npm run build           # tam paket
-npm run build:uretim    # satış-kodsuz üretim paketi
+npx vite --mode demo
 ```
 
-`VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` tanımlanmazsa uygulama otomatik olarak yerel
-JSON-tohum + localStorage moduna düşer — bu repo'yu klonlayıp `npm run dev` ile doğrudan
-deneyebilirsiniz.
+`--mode demo` loads `.env.demo`, which deliberately empties the Supabase variables — the
+app detects this and falls back to localStorage mode: no login screen, synthetic sample
+data.
+
+Other targets:
+
+```bash
+npm run dev             # same localStorage fallback when no Supabase vars are set
+npm run build           # full bundle
+npm run build:uretim    # production-floor bundle, sales code excluded
+```
+
+More generally: whenever `VITE_SUPABASE_URL` / `VITE_SUPABASE_KEY` are not defined, the
+app automatically falls back to the local JSON seed + localStorage — a fresh clone runs
+out of the box.
