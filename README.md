@@ -19,7 +19,7 @@ history. The code and the architecture are real; the data is not.
 ## What it does
 
 - **Inventory** — photo-first product catalog, critical-threshold tracking, stocktake mode.
-- **Production** — planned → in production → pool test → finished; completing an order
+- **Production** — planned → in production → pool test → finished. Completing an order
   consumes the BOM and books the finished goods into stock as a single atomic operation
   (the `complete_production_order` RPC).
 - **CRM** — sales pipeline (lead → quote → negotiation → won/lost). A won deal becomes a
