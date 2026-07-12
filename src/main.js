@@ -8,7 +8,7 @@ import { missingPhotoView } from './views/photos.js';
 import { reportsView } from './views/reports.js';
 import { WITH_SALES, crmPipelineView, crmDealView, crmLogView, salesNavHtml } from '@sales';
 import { getOpGroups, getGroup, setCurrentUser } from './data/store.js';
-import { isCloud, getProfile, signIn, signOut } from './data/supabase.js';
+import { isCloud, getProfile, signIn, signOut, updatePassword } from './data/supabase.js';
 
 // Girişli kullanıcı profili (bulut modu) — satış menüsü rol'e de bakar:
 // üretim rolü tam pakette bile CRM görmez (derinlemesine savunma; asıl duvar
@@ -195,6 +195,64 @@ function showLogin() {
     });
 }
 
+// Şifre değiştirme modalı — ekip ortak başlangıç şifresiyle açıldı, herkes
+// buradan kendi şifresine geçer (eski şifre sorulmaz; oturum kimliği kanıtlar).
+function openPasswordModal() {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+        <div class="modal-panel bg-glass">
+            <div class="modal-head">
+                <h2>Şifre Değiştir</h2>
+                <button class="modal-close" title="Kapat">✕</button>
+            </div>
+            <form class="modal-form">
+                <div class="form-group"><label>Yeni şifre (en az 8 karakter)</label>
+                    <input type="password" id="pw-new" autocomplete="new-password" required minlength="8"></div>
+                <div class="form-group"><label>Yeni şifre (tekrar)</label>
+                    <input type="password" id="pw-new2" autocomplete="new-password" required minlength="8"></div>
+                <p class="modal-error" hidden></p>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-outline modal-cancel">Vazgeç</button>
+                    <button type="submit" class="btn btn-primary">Şifreyi Güncelle</button>
+                </div>
+            </form>
+        </div>`;
+    document.body.appendChild(overlay);
+    const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', onKey);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    overlay.querySelector('.modal-close').addEventListener('click', close);
+    overlay.querySelector('.modal-cancel').addEventListener('click', close);
+
+    const form = overlay.querySelector('.modal-form');
+    const errEl = overlay.querySelector('.modal-error');
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const p1 = overlay.querySelector('#pw-new').value;
+        const p2 = overlay.querySelector('#pw-new2').value;
+        errEl.hidden = true;
+        if (p1 !== p2) {
+            errEl.textContent = 'Şifreler birbirini tutmuyor.';
+            errEl.hidden = false;
+            return;
+        }
+        const btn = form.querySelector('button[type=submit]');
+        btn.disabled = true; btn.textContent = 'Güncelleniyor...';
+        try {
+            await updatePassword(p1);
+            close();
+            showToast('Şifre güncellendi — bir sonraki girişte yeni şifre geçerli.');
+        } catch (err) {
+            errEl.textContent = /same password|different from/i.test(err.message)
+                ? 'Yeni şifre eskisiyle aynı olamaz.' : `Güncellenemedi: ${err.message}`;
+            errEl.hidden = false;
+            btn.disabled = false; btn.textContent = 'Şifreyi Güncelle';
+        }
+    });
+}
+
 function renderUserFooter() {
     if (!userProfile) return;
     const name = userProfile.full_name || 'Kullanıcı';
@@ -204,6 +262,9 @@ function renderUserFooter() {
     const btn = document.getElementById('btn-logout');
     btn.hidden = false;
     btn.addEventListener('click', async () => { await signOut(); location.reload(); });
+    const pwBtn = document.getElementById('btn-passwd');
+    pwBtn.hidden = false;
+    pwBtn.addEventListener('click', openPasswordModal);
 }
 
 async function boot() {

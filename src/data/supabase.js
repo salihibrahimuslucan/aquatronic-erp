@@ -32,6 +32,13 @@ export async function signOut() {
     if (supabase) await supabase.auth.signOut();
 }
 
+// Girişli kullanıcının kendi şifresini değiştirmesi (eski şifre gerekmez —
+// oturum zaten kimliği kanıtlıyor; Supabase updateUser bunu yeterli sayar).
+export async function updatePassword(newPassword) {
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    if (error) throw new Error(error.message);
+}
+
 // PostgREST hata sarmalayıcı — çağrı yerlerini sadeleştirir
 export function unwrap({ data, error }) {
     if (error) throw new Error(error.message);

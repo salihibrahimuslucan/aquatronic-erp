@@ -64,8 +64,16 @@ export const OP_GROUPS = [
 export function getOpGroups() { return OP_GROUPS; }
 export function getGroup(id) { return OP_GROUPS.find((g) => g.id === id) ?? null; }
 
+// Vitrinde gezilebilir aileler (OP_GROUPS alt-sekmelerinden türetilir).
+// Vitrin-dışı aileler (box/enclosure/xhsocket/chemical) bakımsız eşik
+// verisiyle kritik-stok önerisini şişirmesin diye öneri bunlarla sınırlı.
+const VISIBLE_FAMILIES = new Set(
+    OP_GROUPS.flatMap((g) => g.subs?.map((s) => s.match.family) ?? []),
+);
+
 // ─── Normalleştirme ───────────────────────────────────────────────────────
-// familyOrig ?? family: kürasyon-öncesi orijinal kaynak sekmesini geri verir.
+// familyOrig ?? family: kürasyon-öncesi orijinal npoint sekmesini geri verir
+// (uydurma "enclosure/box-split" kaldırıldı — netlify grupları esas).
 function effectiveFamily(raw) {
     return raw.familyOrig ?? raw.family ?? raw.cat ?? 'diger';
 }
@@ -906,6 +914,7 @@ export async function getCriticalSuggestion() {
     const items = await getItems();   // archived hariç
     const groups = new Map();         // supplier key -> {supplier,label,items:[]}
     for (const it of items) {
+        if (!VISIBLE_FAMILIES.has(it.family)) continue;
         if (it.critical <= 0) continue;
         if (it.qty > it.critical) continue;
         const supplier = (it.supplier || '').trim();

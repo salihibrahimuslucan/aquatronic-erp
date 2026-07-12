@@ -1,7 +1,6 @@
 // Üretim Planlama — v2 4 kolonlu board (Planlı/Üretimde/Havuz Testi/Bitmiş)
 // + emir detayı (aşama değiştirme in-memory, havuz testi kalibrasyon formu).
-// Veri: ops.json productionArchive boş -> store.js sample emirlerini kullanır
-// (bu depoda ops.json sentetik veridir, gercek proje adi yoktur).
+// Veri: ops.json productionArchive boş -> store.js sample emirlerini kullanır.
 import {
     getProductionOrders, getProductionOrderById, setOrderStage,
     savePoolMetrics, saveOutsourceMetrics, getPoolSampleMetrics, stageLabel,
@@ -231,7 +230,7 @@ function renderPoolForm(pool) {
                     </div>
                     <div class="form-group">
                         <label>Seri No (SN)</label>
-                        <input type="text" id="pool-sn" value="${esc(p.sn ?? '')}" placeholder="Örn: SN 00000001">
+                        <input type="text" id="pool-sn" value="${esc(p.sn ?? '')}" placeholder="Örn: SN 19589161">
                     </div>
                 </div>
                 <div class="form-row-2">
